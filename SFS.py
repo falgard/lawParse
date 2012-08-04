@@ -9,6 +9,7 @@ import Source
 import Util
 from Dispatcher import Dispatcher
 from DataObjects import CompoundStructure
+from TextReader import TextReader
 
 __moduledir__ = "sfs"
 
@@ -22,6 +23,12 @@ class Stycke(CompoundStructure):
 	def __init__(self, *args, **kwargs):
 		pass
 
+class RevokedDoc(Exception):
+	"""Thrown when a doc that is revoked is being parsed"""
+
+class NotSFS(Exception):
+	"""Thrown when not a real SFS document is being parsed as a SFS document"""
+	pass
 
 class SFSParser(Source.Parser):
 
@@ -46,16 +53,36 @@ class SFSController(Source.Controller):
 			raise Source.NoFiles("No files found for %s" % f)
 		filename = self._xmlName(f)
 
-	# Three checks before we start to parse
+		# Three checks before we start to parse
 
-	# 1: 
+		# 1: Filter out stuff that's not a proper SFS document
+		# They will look something like "N1992:31"
+		if '/N' in f:
+			raise NotSFS()
 
-	# 2: 
+		# 2: If the outfile is newer then all ingoing files, don't parse.
+		#TODO: Add force option to config? 
+		fList = []
+		for x in files.keys():
+			if self._fileUpToDate(fList, filename):
+				return
+			else:
+				fList.extend(files[x])
 
-	# 3: 
+		# 3: Skip the documents that have been revoked and are marked
+		# as "Författningen är upphävd/skall upphävas"
+		t = TextReader(files['sfsr'][0],encoding="iso-8859-1")
+		try:
+			t.cuepast(u'<i>Författningen är upphävd/skall upphävas: ')
+			datestr = t.readto(u'</i></b>')
+			if datetime.strptime(datestr, '%Y-%m-%d') < datetime.today():
+				#TODO: log 'expired' document
+				raise RevokedDoc()
+		except IOError:
+			pass
 
-	# Actual parsing begins here.
-	#p = SFSParser()
+		# Actual parsing begins here.
+		#p = SFSParser()
 
 
 	def ParseAll(self):

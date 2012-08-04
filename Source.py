@@ -2,7 +2,8 @@
 # -*- coding: iso-8859-1 -*-
 
 #Libs
-import os, sys
+import os
+import sys
 
 #3rd party libs
 from configobj import ConfigObj
@@ -50,6 +51,16 @@ class Controller(object):
 				method(f)
 			except KeyboardInterrupt:
 				raise
+
+	def _fileUpToDate(self, infiles, outfile):
+		"""Check if the outfile is up-to-date, then there's no need to regenerate."""
+		if not os.path.exists(outfile): 
+			return False
+		for i in infiles:
+			#TODO: Add lib for timeing!
+			if os.path.exsits(i) and os.stat(i).st_mtime > os.stat(outfile).st_mtime:
+				return False
+		return True
 
 	def _xmlName(self, f):
 		"""Returns a XHTML file name for the given file"""
