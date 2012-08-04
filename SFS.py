@@ -57,6 +57,8 @@ class SFSController(Source.Controller):
 	# Actual parsing begins here.
 	#p = SFSParser()
 
+	#test 
+
 	def ParseAll(self):
 		dlDir = os.path.sep.join([self.baseDir, u'sfs', 'dl', 'sfst'])
 		self._runMethod(dlDir, 'html', self.Parse)
