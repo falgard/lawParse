@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: iso-8859-1 -*-
+"""Base class for Parser (and unimplemented Downloader)"""
 
 #Libs
 import os
@@ -7,15 +8,51 @@ import sys
 
 #3rd party libs
 from configobj import ConfigObj
+from rdflib import RDFS
+from rdflib.Graph import Graph
 
 #Own libs
 import Util
+
+__scriptDir__ = os.getcwd()
 
 class Downloader(object):
 	pass
 
 class Parser(object):
-	pass
+	"""Abstract base class for a document"""
+
+	def __init__(self):
+		self.authRec = self.loadAuthRec(__scriptDir__ + "/etc/authrec.n3")
+
+	def Parse(self):
+		raise NotImplementedError
+
+	def loadAuthRec(self, n3File):
+		"""Load a RDF graph with authority posts in n3-format"""
+		g = Graph()
+		n3File = Util.relpath(n3File)
+		g.load(n3File, format='n3')
+		d = {}
+		for uri, label in g.subject_objects(RDFS.label):
+			d[unicode(label)] = unicode(uri)
+		return d
+
+	def findAuthRec(self, label):
+		"""Given a string that refers to some type of organisation, person etc 
+		return a URI for that"""
+		keys = []
+		for (key, value) in self.authRec.items():
+			if label.lower().startswith(key.lower()):
+				return self.storageUri(value)
+			else:
+				keys.append(key)
+
+		#TODO: Add 'fuzz' to find close matches.
+		#fuzz = difflib.get_close_matches(label, keys, 1, 0.8) ...
+
+	def storageUri(self, value):
+		return value.replace(" ", '_')
 
 class Controller(object):
 	def __init__(self):
@@ -42,7 +79,6 @@ class Controller(object):
 				continue
 			else:
 				yield fileName
-
 
 	def _runMethod(self, dir, suffix, method):
 		files = self._trimFileName(Util.listDirs(dir, suffix, reverse=True))		

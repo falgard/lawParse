@@ -8,7 +8,7 @@ import os
 import Source
 import Util
 from Dispatcher import Dispatcher
-from DataObjects import CompoundStructure
+from DataObjects import CompoundStructure, MapStructure
 from TextReader import TextReader
 
 __moduledir__ = "sfs"
@@ -23,6 +23,16 @@ class Stycke(CompoundStructure):
 	def __init__(self, *args, **kwargs):
 		pass
 
+class Register(CompoundStructure):
+	"""Meta data regarding the documnet and its changes"""
+	def __init__(self, *args, **kwargs):
+		self.rubrik = kwargs['rubrik'] if 'rubrik' in kwargs else None
+		super(Register, self).__init__(*args, **kwargs)
+
+class Registerpost(MapStructure):
+	#TODO: Is this needed??
+	pass
+
 class RevokedDoc(Exception):
 	"""Thrown when a doc that is revoked is being parsed"""
 
@@ -33,10 +43,62 @@ class NotSFS(Exception):
 class SFSParser(Source.Parser):
 
 	def __init__(self):
+		self.lagrumParser = '' #TODO: Add LegalRef()
+		self.currentSection = u'0'
 		Source.Parser.__init__(self)
 
 	def Parse(self, f, files):
-		return 
+		self.id = f 
+		timestamp = sys.maxint
+		for filelist in files.values():
+			for file in filelist:
+				if os.path.getmtime(file) < timestamp:
+					timestamp = os.path.getmtime(file)
+
+		reg = self._parseSFSR(files['sfsr'])
+
+	def _parseSFSR(self, files):
+		"""Parse the SFSR registry with all changes from HTML files"""
+		allAttr = []
+		r = Register()
+		for f in files:
+			soup = Util.loadSoup(f)
+			r.rubrik = Util.elementText(soup.body('table')[2]('tr')[1]('td')[0])
+			changes = soup.body('table'[3:-2])
+			for table in changes:
+				kwargs = {'id': 'undefined',
+						  'uri': u'http://rinfo.lagrummet.se/publ/sfs/undefined'}
+				rp = Registerpost(**kwargs) #TODO: Is this needed?
+				for row in table('tr'):
+					key = Util.elementText(row('td')[0])
+					if key.endswith(':'):
+						key = key [:-1]
+					if key == '': 
+						continue
+					val = Util.elementText(row['td'][1]).replace(u'\xa0',' ')
+					if val != '':
+						if key == u'SFS-nummer':
+							if val.startswith('N'):
+								raise NotSFS()
+							if len(r) == 0:
+								startNode = self.lagrumParser.parse(val)[0]
+								if hasattr(startNode, 'uri'):
+									docUri = startNode.uri
+								#else:
+									#TODO: Log warning, can't read the SFS nr
+							rp[key] = UnicodeSubject(val, predicate=self.labels[key])
+							rp.id = u'L' + val #Starts with L cause NCNames has to start with a letter
+							startNode = self.lagrumParser(val)[0]
+							if hasattr(startNode, 'uri'):
+								rp.uri = startNode.uri
+							#else:
+								#TODO: Log warning, can't read the SFS nr
+
+						elif key == u'Ansvarig myndighet':
+							try: 
+								authRec = self.findAuthRec(val)
+							except Exception, e:
+								rp[key] = val
 
 class SFSController(Source.Controller):
 	
@@ -82,7 +144,7 @@ class SFSController(Source.Controller):
 			pass
 
 		# Actual parsing begins here.
-		#p = SFSParser()
+		p = SFSParser()
 
 
 	def ParseAll(self):
