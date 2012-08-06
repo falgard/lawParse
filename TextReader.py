@@ -29,6 +29,9 @@ class TextReader:
 		else:
 			self.linesep = os.linesep
 
+		self.autostrip = False
+		self.autodewrap = False
+		self.expandtabs = True
 		#TODO: Add extra options for iteration
 
 		if filename:
@@ -48,6 +51,15 @@ class TextReader:
 		self.maxpos = len(self.data)
 		self.lastread = u''
 
+	def __process(self, s):
+		if self.autostrip:
+			s = s.strip()
+		if self.autodewrap:
+			s = s.replace(self.linesep, " ")
+		if self.expandtabs:
+			s = s.expandtabs(8)
+		return s
+
 	def cue(self, string):
 		idx = self.data.find(string, self.currpos)
 		if idx == -1:
@@ -57,3 +69,11 @@ class TextReader:
 	def cuepast(self, string):
 		self.cue(string)
 		self.currpos += len(string)
+
+	def readto(self, string):
+		idx = self.data.find(string, self.currpos)
+		if idx == -1:
+			raise IOError("Could not find %r in file" % string)
+		res = self.data[self.currpos:idx]
+		self.currpos = idx
+		return self.__process(res)

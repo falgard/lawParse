@@ -1,7 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: iso-8859-1 -*-
+"""Lib with utility functions"""
 
+#Libs
 import os
+import codecs
+
+#3rd party libs
+import BeautifulSoup
 
 def relpath(path, start=os.curdir):
 	"""Relative version of a given path"""
@@ -36,3 +42,33 @@ def listDirs(d,suffix=None,reverse=False):
 					continue
 				else:
 					yield f
+
+def elementText(element):
+	"""Finds the plaintext in a BeautifulSoup element"""
+	return normalizedSpace(
+		u''.join(
+		[e for e in element.recursiveChildGenerator() 
+		if (isinstance(e,unicode) and 
+			not isinstance(e, BeautifulSoup.Comment))]))
+
+def normalizedSpace(string):
+	return u' '.join(string.split())
+
+def loadSoup(filename, encoding='iso-8859-1'):
+	return BeautifulSoup.BeautifulSoup(codecs.open(
+		filename,encoding=encoding,errors='replace').read(),convertEntities='html')
+
+	# TODO:
+	# since 3.1, BeautifulSoup no longer supports broken HTML. In the
+    # future, we should use the html5lib parser instead (which exports
+    # a BeautifulSoup interface). However, html5lib has problems of
+    # it's own right now:
+    # http://www.mail-archive.com/html5lib-discuss@googlegroups.com/msg00346.html
+    #
+    # The old call to BeautifulSoup had a convertEntities parameter
+    # (set to 'html'), html5lib.HTMLParser does not have anything
+    # similar. Hope it does right by default.
+    #
+    # f = codecs.open(filename,encoding=encoding,errors='replace')
+    # parser = html5lib.HTMLParser(tree=treebuilders.getTreeBuilder("beautifulsoup"))
+    # return parser.parse(f)
