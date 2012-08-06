@@ -3,6 +3,9 @@
 
 # Libs
 import os
+import sys
+import re
+import htmlentitydefs
 
 # Own libs
 import Source
@@ -48,14 +51,20 @@ class SFSParser(Source.Parser):
 		Source.Parser.__init__(self)
 
 	def Parse(self, f, files):
+		print f
 		self.id = f 
 		timestamp = sys.maxint
 		for filelist in files.values():
 			for file in filelist:
 				if os.path.getmtime(file) < timestamp:
 					timestamp = os.path.getmtime(file)
-
 		reg = self._parseSFSR(files['sfsr'])
+		
+		try:
+			plaintext = self._extractSFST(files['sfst'])
+		except IOError:
+			pass
+
 
 	def _parseSFSR(self, files):
 		"""Parse the SFSR registry with all changes from HTML files"""
@@ -97,8 +106,63 @@ class SFSParser(Source.Parser):
 						elif key == u'Ansvarig myndighet':
 							try: 
 								authRec = self.findAuthRec(val)
+								rp[key] = LinkSubject(val, uri=unicode(authRec[0]),
+													  predicate=self.labels[key])
 							except Exception, e:
 								rp[key] = val
+						elif key == u'Rubrik':
+							rp[key] = UnicodeSubject(val, predicate=self.labels[key])
+						elif key == u'Observera':
+							if u'Författningen är upphävd/skall upphävas: ' in val:
+								if datetime.strptime(val[41:51], '%Y-%m-%d') < datetime.today():
+									raise RevokedDoc()
+							rp[key] = UnicodeSubject(val, predicate=self.labels[key])
+						elif key == u'Ikraft':
+							rp[key] = DateSubject(datetime.strptime(val[:10], '%Y-%m-%d'), predicate=self.labels[key])
+						elif key == u'Omfattning':
+							rp[key] = []
+							#TODO
+							#
+							# for ...
+						elif key == u'F\xf6rarbeten':
+							#TODO
+							pass
+						elif key == u'CELEX-nr':
+							#TODO
+							pass
+						elif key == u'Tidsbegränsad':
+							rp[key] = DateSubject(datetime.strptime(val[:10], '%Y-%m-%d'), predicate=self.labels[key])
+							if rp[key] < datetime.today():
+								raise RevokedDoc()
+						else:
+							#TODO: Log Warning unknown key
+							pass
+				if rp:
+					r.append(rp)
+		return r		
+
+	def _extractSFST(self, files=[], head=True):
+		"""Extracts the plaintext from a HTML file"""
+		if not files:
+			return ""
+
+		t = TextReader(files[0], encoding='iso-8859-1')
+		if head:
+			t.cuepast(u'<pre>')
+		else:
+			t.cuepast(u'<hr>')
+
+		txt = t.readto(u'</pre>')
+		reEntities = re.compile('&(\w+?);')
+		txt = reEntities.sub(self._descapeEntity, txt)
+		if not '\r\n' in txt:
+			txt = txt.replace('\n','\r\n')
+		reTags = re.compile('</?\w{1,3}>')
+		txt = reTags.sub(u'',txt)
+		return txt + self._extractSFST(files[1:], head=False)
+
+	def _descapeEntity(self, m):
+		return unichr(htmlentitydefs.name2codepoint[m.group(1)])
 
 class SFSController(Source.Controller):
 	
@@ -145,7 +209,7 @@ class SFSController(Source.Controller):
 
 		# Actual parsing begins here.
 		p = SFSParser()
-
+		parsed = p.Parse(f, files)
 
 	def ParseAll(self):
 		dlDir = os.path.sep.join([self.baseDir, u'sfs', 'dl', 'sfst'])
