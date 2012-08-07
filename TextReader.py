@@ -8,6 +8,8 @@ import codecs
 
 class TextReader:
 	UNIX = '\n'
+	DOS = '\r\n'
+	MAC = '\r'
 
 	def __init__(self, filename=None, ustring=None, encoding=None, linesep=None):
 		if not filename and not ustring:

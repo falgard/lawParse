@@ -5,9 +5,33 @@
 #Libs
 import os
 import codecs
+import shutil
+import filecmp
 
 #3rd party libs
 import BeautifulSoup
+
+#Common namespaces and prefixes for them
+ns = {'dct':'http://purl.org/dc/terms/',
+	  'rdfs':'http://www.w3.org/2000/01/rdf-schema#',
+      'rdf':'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+      'rinfo':'http://rinfo.lagrummet.se/taxo/2007/09/rinfo/pub#',
+      'xsd':'http://www.w3.org/2001/XMLSchema#',
+      'xht2':'http://www.w3.org/2002/06/xhtml2/'}
+
+def mkdir(dirname):
+	"""mkdir used when creating intermediate and parsed dirs for storage""" 
+	if not os.path.exists(dirname):
+		os.makedirs(dirname)
+
+def checkDir(filename):
+	"""Check if a dir exists, if not create it"""
+	d = os.path.dirname(filename)
+	if d and not os.path.exists(d):
+		try:
+			mkdir(d)
+		except:
+			pass
 
 def relpath(path, start=os.curdir):
 	"""Relative version of a given path"""
@@ -42,6 +66,29 @@ def listDirs(d,suffix=None,reverse=False):
 					continue
 				else:
 					yield f
+
+def replaceUpdated(newfile, oldfile):
+	assert os.path.exists(newfile)
+	if not os.path.exists(oldfile):
+		forceRename(newfile,oldfile)
+		return True
+	elif not filecmp.cmp(newfile,oldfile):
+		forceRename(newfile,oldfile)
+		return True
+	else:
+		os.unlink(newfile)
+		return False
+
+def forceRename(old, new):
+	"""Renames old to new, if the file exists, it's removed
+	if the target dir doesn't exist, it's created"""
+	checkDir(new)
+	if os.path.exists(new):
+		os.unlink(new)
+	try:
+		shutil.move(old,new)
+	except IOError:
+		pass
 
 def elementText(element):
 	"""Finds the plaintext in a BeautifulSoup element"""

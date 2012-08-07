@@ -1,17 +1,25 @@
 #!/usr/bin/env python
 # -*- coding: iso-8859-1 -*-
 
-# Libs
+#Libs
 import os
 import sys
 import re
+import codecs
 import htmlentitydefs
+from tempfile import mktemp
+from datetime import date, datetime
 
-# Own libs
+#3rd party libs
+from rdflib import Namespace, RDFS
+
+#Own libs
 import Source
+from Reference import Reference
 import Util
 from Dispatcher import Dispatcher
-from DataObjects import CompoundStructure, MapStructure
+from DataObjects import CompoundStructure, MapStructure, \
+	 UnicodeStructure, PredicateType, DateStructure
 from TextReader import TextReader
 
 __moduledir__ = "sfs"
@@ -36,22 +44,31 @@ class Registerpost(MapStructure):
 	#TODO: Is this needed??
 	pass
 
+class DateSubject(PredicateType, DateStructure):
+	pass
+
+class UnicodeSubject(PredicateType, UnicodeStructure):
+	pass
+
 class RevokedDoc(Exception):
 	"""Thrown when a doc that is revoked is being parsed"""
-
+	pass
 class NotSFS(Exception):
 	"""Thrown when not a real SFS document is being parsed as a SFS document"""
 	pass
 
+DCT = Namespace(Util.ns['dct'])
+XSD = Namespace(Util.ns['xsd'])
+RINFO = Namespace(Util.ns['rinfo'])
+
 class SFSParser(Source.Parser):
 
 	def __init__(self):
-		self.lagrumParser = '' #TODO: Add LegalRef()
+		self.lagrumParser = Reference(Reference.LAGRUM)
 		self.currentSection = u'0'
 		Source.Parser.__init__(self)
 
 	def Parse(self, f, files):
-		print f
 		self.id = f 
 		timestamp = sys.maxint
 		for filelist in files.values():
@@ -60,10 +77,42 @@ class SFSParser(Source.Parser):
 					timestamp = os.path.getmtime(file)
 		reg = self._parseSFSR(files['sfsr'])
 		
+		#Extract the plaintext and create a intermediate file for storage
 		try:
 			plaintext = self._extractSFST(files['sfst'])
+			txtFile = files['sfst'][0].replace('.htlm', '.txt').replace('dl/sfst', 'intermediate')
+			Util.checkDir(txtFile)
+			tmpFile = mktemp()
+			f = codecs.open(tmpFile, 'w', 'iso-8859-1')
+			f.write(plaintext + '\r\n')
+			f.close()
+			Util.replaceUpdated(tmpFile, txtFile)
+			#print reg
+			#(meta, body) = self._parseSFST(txtFile, reg)
+			#TODO: Add patch handling? 
+
 		except IOError:
+			#TODO: Add Warning extracting plaintext failed
+
+			# TODO: Create Forfattningsinfo + forfattning from 
+			# what we know from the SFSR data 
 			pass
+
+		#Add extra info 
+
+	#Meta data found in both SFST header and SFST data
+	labels = {u'Ansvarig myndighet':		DCT['creator'],
+			  u'SFS-nummer':				RINFO['fsNummer'],
+			  u'SFS nr':					RINFO['fsNummer'],
+			  u'Departement/ myndighet': 	DCT['creator'],
+			  u'Utgivare':					DCT['publisher'],
+			  u'Rubrik':					DCT['title'],
+			  u'Utfärdad':					RINFO['utfardandedatum'],
+			  u'Ikraft':					RINFO['Ikrafttradandesdatum'],
+			  u'Observera':					RDFS.comment,
+			  u'Övrigt':					RDFS.comment,
+			  u'Ändring införd':			RINFO['konsolideringsunderlag']
+	}
 
 
 	def _parseSFSR(self, files):
@@ -73,7 +122,8 @@ class SFSParser(Source.Parser):
 		for f in files:
 			soup = Util.loadSoup(f)
 			r.rubrik = Util.elementText(soup.body('table')[2]('tr')[1]('td')[0])
-			changes = soup.body('table'[3:-2])
+			changes = soup.body('table')[3:-2]
+			#print changes
 			for table in changes:
 				kwargs = {'id': 'undefined',
 						  'uri': u'http://rinfo.lagrummet.se/publ/sfs/undefined'}
@@ -84,7 +134,7 @@ class SFSParser(Source.Parser):
 						key = key [:-1]
 					if key == '': 
 						continue
-					val = Util.elementText(row['td'][1]).replace(u'\xa0',' ')
+					val = Util.elementText(row('td')[1]).replace(u'\xa0',' ')
 					if val != '':
 						if key == u'SFS-nummer':
 							if val.startswith('N'):
@@ -97,7 +147,7 @@ class SFSParser(Source.Parser):
 									#TODO: Log warning, can't read the SFS nr
 							rp[key] = UnicodeSubject(val, predicate=self.labels[key])
 							rp.id = u'L' + val #Starts with L cause NCNames has to start with a letter
-							startNode = self.lagrumParser(val)[0]
+							startNode = self.lagrumParser.parse(val)[0]
 							if hasattr(startNode, 'uri'):
 								rp.uri = startNode.uri
 							#else:
@@ -144,7 +194,7 @@ class SFSParser(Source.Parser):
 	def _extractSFST(self, files=[], head=True):
 		"""Extracts the plaintext from a HTML file"""
 		if not files:
-			return ""
+			return ''
 
 		t = TextReader(files[0], encoding='iso-8859-1')
 		if head:
@@ -163,6 +213,19 @@ class SFSParser(Source.Parser):
 
 	def _descapeEntity(self, m):
 		return unichr(htmlentitydefs.name2codepoint[m.group(1)])
+
+	def _parseSFST(self, txtFile, reg):
+		self.reader = TextReader(txtFile, encoding='iso-8859-1', linesep=TextReader.DOS)
+		self.reader.autostrip = True
+		self.registry = reg
+		meta = self.makeHeader()
+		body = self.makeForfattning()
+
+	def makeHeader(self):
+		pass
+
+	def makeForfattning(self):
+		pass		
 
 class SFSController(Source.Controller):
 	
