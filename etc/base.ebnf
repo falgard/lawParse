@@ -1,0 +1,51 @@
+# ------------ base.ebnf ----------------
+
+# EBNF syntax notations for expressing usful grammar
+
+And					::= 'och'
+Also				::= 'samt'
+Or					::= 'eller'
+In                   ::= 'i'
+AndOr		     ::= (And/Or/Also)
+WAndOrW		     ::= Whitespace, AndOr, Whitespace
+Comma		     ::= ','
+CommaSpace	     ::= Comma, Whitespace
+Hyphen               ::= [-–] # – = endash, used in 2005:104 at least
+SectionMark	     ::= '§'
+DoubleSectionMark    ::= SectionMark, SectionMark
+Colon                ::= ':'
+LeftParen            ::= '('
+RightParen           ::= ')'
+Pipe		     ::= '|'
+Slash                ::= '/'
+Period               ::= '.'
+Ar                   ::= LangtAr/KortAr
+LangtAr              ::= digit, digit, digit, digit
+KortAr               ::= digit, digit
+
+ordinal				::= "första"/"andra"/"tredje"/"fjärde"/"femte"/"sjätte"/"sjunde"/"åttonde"/"nionde"/[1-9]
+
+month               ::= "januari"/"februari"/"mars"/"april"/"maj"/"juni"/"juli"/"augusti"/"september"/"oktober"/"november"/"december"
+
+PieceOrPieces       ::= "st."/"stycket"/"styckena"/("st",?" ")
+SentenceOrSentences ::= "meningen"/"meningarna"
+SectionRefChar      ::= [a-n]
+Element	            ::= 'mom.'
+SidnrRefID          ::= number
+
+# Basic building blockse
+plain        			::= (Whitespace/word/number/punctuation)
+Whitespace   			::= [  \t\n\r\f\v]+
+WhitespaceOrPunctuation ::= (Whitespace/punctuation)+
+
+# Chars found in SFST data
+
+word         		::= [a-zA-ZŠŒŽšœžŸÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ]+
+char        		::= [a-zA-ZŠŒŽšœžŸÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ]
+number       		::= [0-9]+
+digit	     		::= [0-9]
+
+punctuation    ::= [][!"#$%&'()*+,-./:;<=>?@\^_`{}~€‚ƒ„…†‡ˆ‰‹‘’“”•–—˜™›¡¢£¤¥¦§¨©ª«¬®¯°±²³´µ¶·¸¹º»¼½¾¿÷Â­]
+
+
+# ------------ end of base.ebnf ----------------
