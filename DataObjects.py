@@ -32,7 +32,7 @@ class AbstractStructure(object):
 
 class UnicodeStructure(AbstractStructure, unicode):
 	"""UnicodeStructure represents a text string but can also have 
-	a index or for ex 'ikrafttrÃ¤dande datum'"""
+	a index or for ex 'ikraftträdande datum'"""
 	#Immutable objects (str, unicode etc) must provide a __new__ method
 	def __new__(cls, arg=u'', *args, **kwargs):
 		if not isinstance(arg, unicode):
@@ -43,7 +43,7 @@ class UnicodeStructure(AbstractStructure, unicode):
 
 class DateStructure(AbstractStructure, datetime.date):
 	"""DateStructure is a datetime.date that also can have other
-	attributes like 'ikrafttrÃ¤dande datum'"""
+	attributes like 'ikraftträdande datum'"""
 	def __new__(cls, arg=datetime.date.today(), *args, **kwargs):
 		if not isinstance(arg, datetime.date):
 			raise TypeError('%r is not a datetime.date' % arg)
@@ -68,6 +68,17 @@ class MapStructure(AbstractStructure, dict):
 		object.__setattr__(obj, '__initialized', False)
 		return obj
 
+class TemporalStructure(object):
+	"""TemporalStructure has some time properties 'ikraftträdande',
+	'upphör' etc"""
+	def __init__(self):
+		self. entryintoforce = None
+		self.expires = None
+	def in_effect(self, date=None):
+		if not date:
+			date = datetime.date.today()
+		return (date >= self.entryintoforce) and (date <= self.expires)
+		
 class PredicateType(object):
 	"""Inheriting from this class gives the subclass a predicate
 	attribute that describes the RDF predicate to which the class
