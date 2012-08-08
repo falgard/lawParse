@@ -5,6 +5,7 @@
 
 import os
 import codecs
+import copy
 
 class TextReader:
 	UNIX = '\n'
@@ -34,7 +35,9 @@ class TextReader:
 		self.autostrip = False
 		self.autodewrap = False
 		self.expandtabs = True
-		#TODO: Add extra options for iteration
+		self.iterFunc = self.readLine
+		self.iterArgs = []
+		self.iterKwargs = {}
 
 		if filename:
 			self.f = codecs.open(self.name, "rb", encoding)
@@ -49,9 +52,22 @@ class TextReader:
 			assert(isinstance(ustring,unicode))
 			self.data = ustring
 
-		self.currpos = 0
+		self.currPos = 0
 		self.maxpos = len(self.data)
 		self.lastread = u''
+
+	def __iter__(self):
+		return self
+
+	def __find(self, delimiter, startPos):
+		idx = self.data.find(delimiter, startPos)
+		if idx == -1:
+			res = self.data[startPos:]
+			newPos = startPos + len(res)
+		else:
+			res = self.data[startPos:idx]
+			newPos = idx + len(delimiter)
+		return (res, newPos)
 
 	def __process(self, s):
 		if self.autostrip:
@@ -62,20 +78,54 @@ class TextReader:
 			s = s.expandtabs(8)
 		return s
 
+	def next(self):
+		oldPos = self.currPos
+		res = self.__process(self.iterFunc(*self.iterArgs, **self.iterKwargs))
+		if self.currPos == oldPos:
+			raise StopIteration
+		else:
+			return res
+
+	def readLine(self, size=None):
+		return self.readChunk(self.linesep)
+
 	def cue(self, string):
-		idx = self.data.find(string, self.currpos)
+		idx = self.data.find(string, self.currPos)
 		if idx == -1:
 			raise IOError("Could not find %r in the file" % string)
-		self.currpos = idx
+		self.currPos = idx
 
 	def cuepast(self, string):
 		self.cue(string)
-		self.currpos += len(string)
+		self.currPos += len(string)
 
-	def readto(self, string):
-		idx = self.data.find(string, self.currpos)
+	def readTo(self, string):
+		idx = self.data.find(string, self.currPos)
 		if idx == -1:
 			raise IOError("Could not find %r in file" % string)
-		res = self.data[self.currpos:idx]
-		self.currpos = idx
+		res = self.data[self.currPos:idx]
+		self.currPos = idx
 		return self.__process(res)
+
+	def readParagraph(self):
+		return self.readChunk(self.linesep * 2)
+
+	def readChunk(self, delimiter):
+		(self.lastread, self.currPos) = self.__find(delimiter, self.currPos)
+		return self.__process(self.lastread)
+
+	def getReader(self, callableObj, *args, **kwargs):
+		"""Treats the result of a read, peek or prev method as a new
+		TextReader. Useful to process pages in page-oriented documents"""
+		res = callableObj(*args, **kwargs)
+		clone = copy.copy(self)
+		clone.data = res
+		clone.currPos = 0
+		clone.maxpos = len(clone.data)
+		return clone
+
+	def getIterator(self, callableObj, *args, **kwargs):
+		self.iterFunc = callableObj
+		self.iterArgs = args
+		self.iterKwargs = kwargs
+		return self
