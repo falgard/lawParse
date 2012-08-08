@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: iso-8859-1 -*-
+"""Handles SFS documents from Regeringskansliet DB"""
 
 #Libs
 import os
 import sys
 import re
+import unicodedata
 import codecs
 import htmlentitydefs
 from tempfile import mktemp
@@ -15,20 +17,24 @@ from rdflib import Namespace, RDFS
 
 #Own libs
 import Source
-from Reference import Reference
+from Reference import Reference, Link, LinkSubject
 import Util
 from Dispatcher import Dispatcher
 from DataObjects import CompoundStructure, MapStructure, \
-	 UnicodeStructure, PredicateType, DateStructure
+	 UnicodeStructure, PredicateType, DateStructure, TemporalStructure
 from TextReader import TextReader
 
 __moduledir__ = "sfs"
 
-class Forfattning():
+class Forfattning(CompoundStructure, TemporalStructure):
 	pass
 
-class Rubrik():
-	pass
+class Rubrik(UnicodeStructure, TemporalStructure):
+	"""Headline or sub headline"""
+	fragLabel = 'R'
+	def __init__(self, *args, **kwargs):
+		self.id = kwargs['id'] if 'id' in kwargs else None
+		super(Rubrik,self).__init__(*args, **kwargs)
 
 class Stycke(CompoundStructure):
 	def __init__(self, *args, **kwargs):
@@ -44,15 +50,19 @@ class Registerpost(MapStructure):
 	#TODO: Is this needed??
 	pass
 
-class DateSubject(PredicateType, DateStructure):
+class ForfattningsInfo(MapStructure):
 	pass
 
 class UnicodeSubject(PredicateType, UnicodeStructure):
 	pass
 
+class DateSubject(PredicateType, DateStructure):
+	pass
+
 class RevokedDoc(Exception):
 	"""Thrown when a doc that is revoked is being parsed"""
 	pass
+
 class NotSFS(Exception):
 	"""Thrown when not a real SFS document is being parsed as a SFS document"""
 	pass
@@ -60,8 +70,11 @@ class NotSFS(Exception):
 DCT = Namespace(Util.ns['dct'])
 XSD = Namespace(Util.ns['xsd'])
 RINFO = Namespace(Util.ns['rinfo'])
+RINFOEX = Namespace(Util.ns['rinfoex'])
 
 class SFSParser(Source.Parser):
+
+	reSimpleSfsId = re.compile(r'(\d{4}:\d+)\s*$')
 
 	def __init__(self):
 		self.lagrumParser = Reference(Reference.LAGRUM)
@@ -80,15 +93,16 @@ class SFSParser(Source.Parser):
 		#Extract the plaintext and create a intermediate file for storage
 		try:
 			plaintext = self._extractSFST(files['sfst'])
-			txtFile = files['sfst'][0].replace('.htlm', '.txt').replace('dl/sfst', 'intermediate')
+			txtFile = files['sfst'][0].replace('.html', '.txt').replace('dl/sfst', 'intermediate')
 			Util.checkDir(txtFile)
 			tmpFile = mktemp()
 			f = codecs.open(tmpFile, 'w', 'iso-8859-1')
 			f.write(plaintext + '\r\n')
 			f.close()
 			Util.replaceUpdated(tmpFile, txtFile)
-			#print reg
-			#(meta, body) = self._parseSFST(txtFile, reg)
+			
+			meta = self._parseSFST(txtFile, reg)
+			
 			#TODO: Add patch handling? 
 
 		except IOError:
@@ -107,11 +121,11 @@ class SFSParser(Source.Parser):
 			  u'Departement/ myndighet': 	DCT['creator'],
 			  u'Utgivare':					DCT['publisher'],
 			  u'Rubrik':					DCT['title'],
-			  u'UtfÃ¤rdad':					RINFO['utfardandedatum'],
+			  u'Utfärdad':					RINFO['utfardandedatum'],
 			  u'Ikraft':					RINFO['Ikrafttradandesdatum'],
 			  u'Observera':					RDFS.comment,
-			  u'Ã–vrigt':					RDFS.comment,
-			  u'Ã„ndring infÃ¶rd':			RINFO['konsolideringsunderlag']
+			  u'Övrigt':					RDFS.comment,
+			  u'Ändring införd':			RINFO['konsolideringsunderlag']
 	}
 
 
@@ -128,6 +142,7 @@ class SFSParser(Source.Parser):
 				kwargs = {'id': 'undefined',
 						  'uri': u'http://rinfo.lagrummet.se/publ/sfs/undefined'}
 				rp = Registerpost(**kwargs) #TODO: Is this needed?
+				
 				for row in table('tr'):
 					key = Util.elementText(row('td')[0])
 					if key.endswith(':'):
@@ -148,6 +163,7 @@ class SFSParser(Source.Parser):
 							rp[key] = UnicodeSubject(val, predicate=self.labels[key])
 							rp.id = u'L' + val #Starts with L cause NCNames has to start with a letter
 							startNode = self.lagrumParser.parse(val)[0]
+
 							if hasattr(startNode, 'uri'):
 								rp.uri = startNode.uri
 							#else:
@@ -163,7 +179,7 @@ class SFSParser(Source.Parser):
 						elif key == u'Rubrik':
 							rp[key] = UnicodeSubject(val, predicate=self.labels[key])
 						elif key == u'Observera':
-							if u'FÃ¶rfattningen Ã¤r upphÃ¤vd/skall upphÃ¤vas: ' in val:
+							if u'Författningen är upphävd/skall upphävas: ' in val:
 								if datetime.strptime(val[41:51], '%Y-%m-%d') < datetime.today():
 									raise RevokedDoc()
 							rp[key] = UnicodeSubject(val, predicate=self.labels[key])
@@ -180,7 +196,7 @@ class SFSParser(Source.Parser):
 						elif key == u'CELEX-nr':
 							#TODO
 							pass
-						elif key == u'TidsbegrÃ¤nsad':
+						elif key == u'Tidsbegränsad':
 							rp[key] = DateSubject(datetime.strptime(val[:10], '%Y-%m-%d'), predicate=self.labels[key])
 							if rp[key] < datetime.today():
 								raise RevokedDoc()
@@ -202,7 +218,7 @@ class SFSParser(Source.Parser):
 		else:
 			t.cuepast(u'<hr>')
 
-		txt = t.readto(u'</pre>')
+		txt = t.readTo(u'</pre>')
 		reEntities = re.compile('&(\w+?);')
 		txt = reEntities.sub(self._descapeEntity, txt)
 		if not '\r\n' in txt:
@@ -217,12 +233,74 @@ class SFSParser(Source.Parser):
 	def _parseSFST(self, txtFile, reg):
 		self.reader = TextReader(txtFile, encoding='iso-8859-1', linesep=TextReader.DOS)
 		self.reader.autostrip = True
-		self.registry = reg
+		self.reg = reg
 		meta = self.makeHeader()
 		body = self.makeForfattning()
 
 	def makeHeader(self):
-		pass
+		subReader = self.reader.getReader(self.reader.readChunk, self.reader.linesep * 4)
+		meta = ForfattningsInfo()
+		for line in subReader.getIterator(subReader.readParagraph):
+			if ':' in line:
+				(key, val) = [Util.normalizedSpace(x) for x in line.split(':',1)]
+			if key == u'Rubrik':
+				meta[key] = UnicodeSubject(val, predicate=self.labels[key])
+			elif key == u'Övrigt':
+				meta[key] = UnicodeSubject(val, predicate=self.labels[key])
+			elif key == u'SFS nr':
+				meta[key] = UnicodeSubject(val, predicate=self.labels[key])
+			elif key == u'Utfärdad':
+				meta[key] = DateSubject(datetime.strptime(val[:10], '%Y-%m-%d'), predicate=self.labels[key])
+			elif key == u'Upphävd':
+				meta[key] = DateSubject(datetime.strptime(val[:10], '%Y-%m-%d'), predicate=self.labels[key])
+				if meta[key] < datetime.today():
+					raise RevokedDoc()
+			elif key == u'Department/ myndighet':
+				authRec = self.findAuthRec(val)
+				meta[key] = LinkSubject(val, uri=unicode(authRec), predicate=self.labels[key])
+			elif key == u'Ändring införd':
+				m = self.reSimpleSfsId.search(val)
+				if m:				
+					uri = self.lagrumParser.parse(m.group(1))[0].uri
+					meta[key] = LinkSubject(val, uri=uri, predicate=self.labels[key])
+				else:
+					pass
+					#TODO: Add warning, could not get the SFS nr of the last change
+			elif key == u'Omtryck':
+				val = val.replace(u'SFS ', '')
+				val = val.replace(u'SFS', '')
+				try:
+					uri = self.lagrumParser.parse(val)[0].uri
+					meta[key] = UnicodeSubject(val, predicate=self.labels[key])
+				except AttributeError:
+					pass
+			elif key == u'Författningen har upphävts genom':
+				val = val.replace(u'SFS ', '')
+				val = val.replace(u'SFS', '')
+				startNode = self.lagrumParser.parse(val)[0]
+				if hasattr(startNode, 'uri'):
+					uri = startNode.uri
+					meta[key] = LinkSubject(val, uri=uri, predicate=self.labels[key])
+				else:
+					meta[key] = val
+					#TODO: Add warning, could not get SFS nr	
+			elif key == u'Tidsbegränsad':
+				meta[key] = DateSubject(datetime.strptime(val[:10], '%Y-%m-%d'), predicate=self.labels[key])
+			else:
+				pass
+				#TODO: Add warning, unknown key 
+			meta[u'Utgivare'] = LinkSubject(u'Regeringskansliet', 
+											uri=self.findAuthRec('Regeringskansliet'), 
+											predicate=self.labels[u'Utgivare'])
+
+		docUri = self.lagrumParser.parse(meta[u'SFS nr'])[0].uri
+		meta[u'xml:base'] = docUri
+
+		if u'Rubrik' not in meta:
+			pass
+			#TODO: Add warning, Rubrik is missing
+
+		return meta
 
 	def makeForfattning(self):
 		pass		
@@ -233,46 +311,52 @@ class SFSController(Source.Controller):
 
 	## Controller Interface ##
 
-	def Parse(self, f, v=False):
-			
-		f = f.replace(":", "/")
-		files = {'sfst':self.__listfiles('sfst',f), 
-				 'sfsr':self.__listfiles('sfsr',f)}
-		if (not files['sfst'] and not files['sfsr']):
-			raise Source.NoFiles("No files found for %s" % f)
-		filename = self._xmlName(f)
-
-		# Three checks before we start to parse
-
-		# 1: Filter out stuff that's not a proper SFS document
-		# They will look something like "N1992:31"
-		if '/N' in f:
-			raise NotSFS()
-
-		# 2: If the outfile is newer then all ingoing files, don't parse.
-		#TODO: Add force option to config? 
-		fList = []
-		for x in files.keys():
-			if self._fileUpToDate(fList, filename):
-				return
-			else:
-				fList.extend(files[x])
-
-		# 3: Skip the documents that have been revoked and are marked
-		# as "FÃ¶rfattningen Ã¤r upphÃ¤vd/skall upphÃ¤vas"
-		t = TextReader(files['sfsr'][0],encoding="iso-8859-1")
+	def Parse(self, f, v=False):		
 		try:
-			t.cuepast(u'<i>FÃ¶rfattningen Ã¤r upphÃ¤vd/skall upphÃ¤vas: ')
-			datestr = t.readto(u'</i></b>')
-			if datetime.strptime(datestr, '%Y-%m-%d') < datetime.today():
-				#TODO: log 'expired' document
-				raise RevokedDoc()
-		except IOError:
-			pass
+			f = f.replace(":", "/")
+			files = {'sfst':self.__listfiles('sfst',f), 
+					 'sfsr':self.__listfiles('sfsr',f)}
+			if (not files['sfst'] and not files['sfsr']):
+				raise Source.NoFiles("No files found for %s" % f)
+			filename = self._xmlName(f)
 
-		# Actual parsing begins here.
-		p = SFSParser()
-		parsed = p.Parse(f, files)
+			# Three checks before we start to parse
+
+			# 1: Filter out stuff that's not a proper SFS document
+			# They will look something like "N1992:31"
+			if '/N' in f:
+				raise NotSFS()
+
+			# 2: If the outfile is newer then all ingoing files, don't parse.
+			#TODO: Add force option to config? 
+			fList = []
+			for x in files.keys():
+				if self._fileUpToDate(fList, filename):
+					return
+				else:
+					fList.extend(files[x])
+
+			# 3: Skip the documents that have been revoked and are marked
+			# as "Författningen är upphävd/skall upphävas"
+			t = TextReader(files['sfsr'][0], encoding="iso-8859-1")
+			try:
+				t.cuepast(u'<i>Författningen är upphävd/skall upphävas: ')
+				datestr = t.readTo(u'</i></b>')
+				if datetime.strptime(datestr, '%Y-%m-%d') < datetime.today():
+					raise RevokedDoc()
+					#TODO: log 'expired' document
+			except IOError:
+				pass
+			# Actual parsing begins here.
+			p = SFSParser()
+			parsed = p.Parse(f, files)
+
+		except RevokedDoc:
+			Util.remove(filename)
+			Util.remove(Util.relpath(self._htmlName(f)))
+		except NotSFS:
+			Util.remove(filename)
+			Util.remove(Util.relpath(self._htmlName(f)))
 
 	def ParseAll(self):
 		dlDir = os.path.sep.join([self.baseDir, u'sfs', 'dl', 'sfst'])
