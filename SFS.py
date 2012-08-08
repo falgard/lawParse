@@ -40,6 +40,67 @@ class Stycke(CompoundStructure):
 	def __init__(self, *args, **kwargs):
 		pass
 
+class NumreradLista(CompoundStructure):
+	pass
+
+class StrecksatsLista(CompoundStructure):
+	pass
+
+class BokstavsLista(CompoundStructure):
+	pass
+
+class Tabell(CompoundStructure):
+	pass
+
+class TabellRad(CompoundStructure, TemporalStructure):
+	pass
+
+class TabellCell(CompoundStructure):
+	pass
+
+class Avdelning(CompoundStructure, OrdinalStructure):
+	fragLabel = 'A'
+	def __init__(self, *args, **kwargs):
+		self.id = kwargs['id'] if 'id' in kwargs else None
+		super(Avdelning, self).__init__(*args, **kwargs)
+
+class UpphavtKapitel(UnicodeStructure, OrdinalStructure):
+	"""A 'UpphavtKapitel' is different from a 'upphävt kapitel'
+	in that way that the law text is gone, just a place holder"""
+	pass
+
+class Kapitel(CompoundStructure, OrdinalStructure):
+	fragLabel = 'K'
+	def __init__(self, *args, **kwargs):
+		self.id = kwargs['id'] if 'if' in kwargs else None
+		super(Kapitel, self).__init__(*args, **kwargs)
+
+class UpphavdParagraf(UnicodeStructure, OrdinalStructure):
+	pass
+
+class Paragraf(CompoundStructure, OrdinalStructure):
+	fragLabel = 'P'
+	def __init__(self, *args, **kwargs):
+		self.id = kwargs['id'] if 'if' in kwargs else None
+		super(Paragraf, self).__init__(*args, **kwargs)	
+
+class Overgangsbestammelser(CompoundStructure):
+	def __init__(self, *args, **kwargs):
+		self.rubrik = kwargs['rubrik'] if 'rubrik' in kwargs else u'Övergångsbestämmelser'
+		super(Overgangsbestammelser, self).__init__(*args, **kwargs)	
+
+class Overgangsbestammelse(CompoundStructure, OrdinalStructure):
+	fragLabel = 'L'
+	def __init__(self, *args, **kwargs):
+		self.id = kwargs['id'] if 'if' in kwargs else None
+		super(Overgangsbestammelse, self).__init__(*args, **kwargs)
+
+class Bilaga(CompoundStructure):
+	fragLabel = 'B'
+	def __init__(self, *args, **kwargs):
+		self.id = kwargs['id'] if 'if' in kwargs else None
+		super(Bilaga, self).__init__(*args, **kwargs)
+
 class Register(CompoundStructure):
 	"""Meta data regarding the documnet and its changes"""
 	def __init__(self, *args, **kwargs):
@@ -79,6 +140,7 @@ class SFSParser(Source.Parser):
 	def __init__(self):
 		self.lagrumParser = Reference(Reference.LAGRUM)
 		self.currentSection = u'0'
+		self.currentHeadlineLevel = 0
 		Source.Parser.__init__(self)
 
 	def Parse(self, f, files):
@@ -303,7 +365,756 @@ class SFSParser(Source.Parser):
 		return meta
 
 	def makeForfattning(self):
-		pass		
+		while self.reader.peekLine() == '':
+			self.reader.readLine()
+
+		(line, upphor, ikrafttrader) = self.andringsDatum(self.reader.peekLine())
+		if ikrafttrader:
+			b = Forfattning(ikrafttrader=ikrafttrader)
+			self.reader.readLine()
+		else:
+			b = Forfattning()
+
+		while not self.reader.eof():
+			stateHandler = self.guesState()
+			if stateHandler == self.makeOvergangsbestemmelse:
+				res = self.makeOvergangsbestemmelser(rubrikMissing=True)
+			else:
+				res = stateHandler()
+			if res != None:
+				b.append(res)
+		
+		return b
+
+	def makeAvdelning(self):
+		avdNr = self.idOfAvdelning()
+		p.Avdelning(rubrik=self.reader.readLine(),
+					ordinal=avdNr,
+					underRubrik=None)
+		if (self.reader.peekLine(1) == '' and 
+			self.reader.peekLine(3) == '' and
+			not self.isKapitel(self.reader.peekLine(2))):
+			self.reader.readLine()
+			p.underRubrik = self.reader.readLine()
+
+		while not self.reader.eof():
+			stateHandler = self.guesState()
+			if stateHandler in (self.makeAvdelning,
+								self.makeOvergangsbestemmelser,
+								self.makeBilaga):
+				return p
+			else:
+				res = stateHandler()
+				if res != None:
+					p.append(res)
+		return p		
+
+	def makeUpphavtKapitel(self):
+		kapNr = self.idOfKapitel()
+		
+		return UpphavtKapitel(self.reader.readLine(), ordinal=kapNr)
+
+	def makeKapitel(self):
+		kapNr = self.idOfKapitel()
+		paragraf = self.reader.readParagraph()
+		(line, upphor, ikrafttrader) = self.andringsDatum(paragraf)
+
+		kwargs = {'rubrik': Util.normalizedSpace(line),
+				  'ordinal': kapNr}
+		if upphor:
+			kwargs['upphor'] = upphor
+		if ikrafttrader:
+			kwargs['ikrafttrader'] = ikrafttrader
+		k = Kapitel(**kwargs)
+		self.currentHeadlineLevel = 0
+		self.currentSection = u'0'
+
+		while not self.reader.eof():
+			stateHandler = self.guesState()
+			if stateHandler in (self.makeKapitel,
+								self.makeUpphavtKapitel,
+								self.makeAvdelning,
+								self.makeOvergangsbestemmelser,
+								self.makeBilaga):
+				return (k)
+			else:
+				res = stateHandler()
+				if res != None:
+					k.append(res)
+
+		return k 
+
+	def makeRubrik(self):
+		paragraf = self.reader.readParagraph()
+		(line, upphor, ikrafttrader) = self.andringsDatum(paragraf)
+
+		kwargs = {}
+		if upphor:
+			kwargs['upphor'] = upphor
+		if ikrafttrader:
+			kwargs['ikrafttrader'] = ikrafttrader
+		if self.currentHeadlineLevel == 2:
+			kwargs['type'] = u'underRubrik'
+		elif self.currentHeadlineLevel == 1:
+			self.currentHeadlineLevel = 2
+		r = Rubrik(line, **kwargs)
+
+		return r
+
+	def makeUpphavdParagraf(self):
+		paraNr = self.idOfParagraf(self.reader.peekLine())
+		p = UpphavdParagraf(self.reader.readLine(), ordinal=paraNr)
+		self.currentSection = paraNr
+
+		return p
+
+	def makeParagraf(self):
+		paraNr = self.idOfParagraf(self.reader.peekLine())
+		p = UpphavdParagraf(self.reader.readLine(), ordinal=paraNr)
+		self.currentSection = paraNr
+
+		return p
+
+	def makeStycke(self):
+		s = Stycke([Util.normalizedSpace(self.reader.readParagraph())])
+
+		while not self.reader.eof():
+			stateHandler = self.guesState()
+			if stateHandler in (self.makeNumreradLista,
+								self.makeBokstavsLista,
+								self.makeStrecksatsLista,
+								self.makeTabell):
+				res = stateHandler()
+				s.append(res)
+			elif stateHandler == self.blankLine:
+				stateHandler()
+			else:
+				return self
+
+		return self
+
+	def makeNumreradLista(self):
+		n = NumreradLista()
+
+		while not self.reader.eof():
+			if self.isNumreradLista():
+				stateHandler = self.makeNumreradLista
+			else:
+				stateHandler = self.guesState()
+			if stateHandler not in (self.blankLine,
+									self.makeNumreradLista,
+									self.makeBokstavsLista,
+									self.makeStrecksatsLista):
+				return n
+			elif stateHandler == self.blankLine:
+				stateHandler()
+			else:
+				if stateHandler == self.makeNumreradLista:
+					listelementOrdinal = self.idOfNumreradLista()
+					li = Listelement(ordinal=listelementOrdinal)
+					p = self.reader.readParagraph()
+					li.append(p)
+					n.append(li)
+				else:
+					res = stateHandler()
+					n[-1].append(res)
+		return n
+
+	def makeBokstavsLista(self):
+		n = BokstavsLista()
+
+		while not self.reader.eof():
+			stateHandler = self.guesState()
+			if stateHandler not in (self.blankLine,
+									self.makeBokstavsLista):
+				return n
+			elif stateHandler == self.blankLine:
+				res = stateHandler()
+			else:
+				listelementOrdinal = self.idOfBokstavsLista()
+				li = Listelement(ordinal=listelementOrdinal)
+				p = self.reader.readParagraph()
+				li.append(p)
+				n.append(li)
+
+		return n
+
+	def makeStrecksatsLista(self):
+		n = StrecksatsLista()
+		count = 0
+
+		while not self.reader.eof():
+			stateHandler = self.guesState()
+			if stateHandler not in (self.blankLine,
+									self.makeStrecksatsLista):
+				return n
+			elif stateHandler == self.blankLine:
+				res = stateHandler()
+			else:
+				count += 1
+				p = self.reader.readParagraph()
+				li = Listelement(ordinal=unicode(count))
+				li.append(p)
+				n.append(li)
+
+		return n
+
+	def makeBilaga(self):
+		rubrik = self.reader.readParagraph()
+		(rubrik, upphor, ikrafttrader) = self.andringsDatum(rubrik)
+
+		kwargs = {'rubrik':rubrik}
+		if upphor: 
+			kwargs['upphor'] = upphor
+		if ikrafttrader:
+			kwargs['ikrafttrader'] = ikrafttrader
+		b = Bilaga(**kwargs)
+
+		while not self.reader.eof():
+			stateHandler = self.guesState()
+			if stateHandler in (self.makeBilaga, self.makeOvergangsbestemmelser):
+				return b
+			res = stateHandler()
+			if res != None:
+				b.append(res)
+		return b
+
+	def makeOvergangsbestammelser(self, rubrikMissing=False):
+		if rubrikMissing:
+			rubrik = u'[Övergångsbestämmelser]'
+		else:
+			rubrik = self.reader.readParagraph()
+		obs = Overgangsbestemmelser(rubrik=rubrik)
+
+		while not self.reader.eof():
+			stateHandler = self.guesState()
+			if stateHandler == self.makeBilaga:
+				return obs
+
+			res = stateHandler()
+			if res != None:
+				if stateHandler != self.makeOvergangsbestemmelse:
+					if hasattr(self,'id') and '/' in self.id:
+						sfsnr = FilenameToSfsNr(self.id)
+					else:
+						sfsnr = u'0000:000'
+
+					obs.append(Overgangsbestemmelse([res], sfsnr=sfsnr))
+				else:
+					obs.append(res)
+		return obs
+
+	def makeOvergangsbestammelse(self):
+		p = self.reader.readLine()
+		ob = Overgangsbestemmelse(sfsnr=p)
+
+		while not self.reader.eof():
+			stateHandler = self.guesState()
+			if stateHandler in (self.makeOvergangsbestemmelse, self.makeBilaga):
+				return ob
+			res = stateHandler()
+			if res != None:
+			ob.append(res)
+
+		return ob
+
+	def makeTabell(self):
+		pCount = 0
+		t = Tabell()
+		autostrip = self.reader.autostrip
+		self.reader.autostrip = False
+		p = self.reader.readParagraph()
+		(trs, tabstops) = self.makeTabellRad(p)
+		t.extend(trs)
+
+		while not self.reader.eof():
+			(l, upphor, ikrafttrader) = self.andringsDatum(self.reader.peekLine(), match=True)
+			if upphor:
+				currUpphor = upphor
+				self.reader.readLine()
+				pCount = 1
+			elif ikrafttrader:
+				currIkrafttrader = ikrafttrader
+				currUpphor = None
+				self.reader.readLine()
+				pCount = -pCount + 1
+			elif self.isTabell(assumeTable=True):
+				kwargs = {}
+				if pCount > 0:
+					kwargs['upphor'] = currUpphor
+					pCount += 1
+				elif pCount < 0:
+					kwargs['ikrafttrader'] = currIkrafttrader
+					pCount += 1
+				elif pCount == 0:
+					currIkrafttrader = None
+				p = self.reader.readParagraph()
+				if p:
+					(trs, tabstops) = self.makeTabellRad(p, tabstops,kwargs=kwargs)
+					t.extend(trs)
+			else:
+				self.reader.autostrip = autostrip
+				return t
+
+		self.reader.autostrip = autostrip
+		return t
+
+	def makeTabellRad(self, p, tabstops=None, kwargs={}):
+		def makeTabellCell(text):
+			if len(text) > 1:
+				text = self.reDehypenate('', text)
+			return TabellCell([Util.normalizedSpace(text)])
+
+		cols = [u'', u'',u'', u'',u'', u'',u'', u'']
+		if tabstops:
+			staticTabstops = True
+		else:
+			staticTabstops = False
+			tabstops = [0,0,0,0,0,0,0,0]
+		lines = p.split(self.reader.linesep)
+		numLines = len([x for x in lines if x])
+		potentialRows = len([x for x in lines if x and (x[0].isupper() or x[0].isdigit())])
+		lineCount = 0
+		if (numLines > 1 and numLines == potentialRows):
+			singleLine = True
+		else:
+			singleLine = False
+
+		rows = []
+		emptyLeft = False
+		for l in lines:
+			if l == '':
+				continue
+			lineCount += 1
+			charCount = 0
+			spaceCount =0
+			lastTab = 0
+			colCount = 0
+			if singleLine:
+				cols = [u'', u'',u'', u'',u'', u'',u'', u'']
+			if l[0] == ' ':
+				emptyLeft = True
+			else:
+				if emptyLeft:
+					rows.append(cols)
+					cols = [u'', u'',u'', u'',u'', u'',u'', u'']
+					emptyLeft = False
+
+			for c in l:
+				charCount += 1
+				if c == u' ':
+					spaceCount += 1
+				else:
+					if spaceCount > 1:
+						# We have found a new table cell
+						cols[colCount] += u'\n' + l[lastTab:charCount-(spaceCount+1)]
+						lastTab = charCount -1
+
+						# Handle empty left cells
+						if lineCount > 1 or staticTabstops:
+							if tabstops[colCount+1] + 7 < charCount:
+								if len(tabstops) <= colCount + 2:
+									tabstops.append(0)
+									cols.append(u'')
+								if tabstops[colCount+2] != 0:
+									colCount += 1
+						colCount += 1
+						if len(tabstops) <= charCount:
+							tabstops.append(0)
+							cols.append(u'')
+						tabstops[colCount] = charCount
+					spaceCount = 0
+			cols[colCount] += u'\n' + l[lastTab:charCount]
+			if singleLine:
+				rows.append(cols)	
+
+		if not singleLine:
+			rows.append(cols)
+
+		res = []
+		for r in rows:
+			tr = TabellRad(**kwargs)
+			emptyOk = True
+			for c in r:
+				if c or emptyOk:
+					tr.append(makeTabellCell(c.replace('\n', ' ')))
+					if c.strip() != u'':
+						emptyOk = False
+			res.append(tr)
+
+		return (res, tabstops)
+
+	def blankLine(self):
+		self.reader.readLine()
+		
+		return None
+
+	def eof(self):
+		return None	
+
+	def andringsDatum(self, line, match=False):
+		dates = {'ikrafttrader'	: None,
+				 'upphor'		: None }
+
+		for (regex, key) in { self.reRevokeDate			: 'upphor',
+							  self.reRevokeAuth			: 'upphor',
+							  self.reEntryIntoForceDate : 'ikrafttrader',
+							  self.reEntryIntoForceAuth	: 'ikrafttrader'}.items():
+			if match:
+				m = regex.match(line)
+			else:
+				m = regex.search(line)
+			if m:
+				if len(m.groups()) == 3:
+					dates[key] = datetime(int(m.group(1)),
+										  int(m.group(2)),
+										  int(m.group(3)))
+				else:
+					dates[key] = m.group(1)
+				line = regex.sub(u'', line)
+
+		return (line.strip(), dates['upphor'], dates['ikrafttrader'])
+
+	def guesState(self):
+		try:
+			if self.reader.peekLine() == '':
+				handler = self.blankLine
+			elif self.isAvdelning():
+				handler = self.makeAvdelning
+			elif self.isUpphavtKapitel():
+				handler = self.makeUpphavtKapitel
+            elif self.isUpphavdParagraf():
+            	handler = self.makeUpphavdParagraf
+            elif self.isKapitel():
+            	handler = self.makeKapitel
+            elif self.isParagraf():
+            	handler = self.makeParagraf
+            elif self.isTabell():
+            	handler = self.makeTabell
+            elif self.isOvergangsbestammelser():
+            	handler = self.makeOvergangsbestammelser
+            elif self.isOvergangsbestammelse():
+            	handler = self.makeOvergangsbestammelse
+            elif self.isBilaga():
+            	handler = self.makeBilaga
+            elif self.isNumreradLista():
+            	handler = self.makeNumreradLista
+            elif self.isStrecksatslista():
+            	handler = self.makeStrecksatsLista
+            elif self.isBokstavslista():
+            	handler = self.makeBokstavsLista
+            elif self.isRubrik():
+            	handler = self.makeRubrik
+            else:
+            	handler = self.makeStycke
+        except IOError:
+        	handler = self.eof
+
+        return handler
+
+    def isAvdelning(self):
+    	if '\n' in self.reader.peekParagraph() != '':
+    		return False
+    	return self.idOfAvdelning() != None
+
+    def idOfAvdelning(self):
+    	# There's four types of 'Avdelning', this checks for these patterns
+    	p = self.reader.peekLine()
+    	if p.lower().endswith(u'avdelningen') and len(p.split()) == 2:
+    		ordinal = p.split()[0]
+    		return unicode(self._sweOrdinal(ordinal))
+    	elif p.startswith(u'AVD. ') or p.startswith(u'AVDELNING '):
+    		roman = re.split(r'\s+',p)[1]
+    		if roman.endswith('.'):
+    			roman = roman[:-1]
+    		if self.reRomanNumMatcher(roman):
+    			return unicode(self._fromRoman(roman))
+    	elif p.startswith(u'Avdelning '):
+    		roman = re.split(r'\s+',p)[1]
+    		if self.reRomanNumMatcher(roman)
+    			return unicode(self._fromRoman(roman))
+    	elif p[2:6] == 'avd.':
+    		if p.isdigit():
+    			return p[0]
+    	elif p.startswith(u'Avd. '):
+    		idStr = re.split(r'\s+',p)[1]
+    		if idStr.isdigit():
+    			return idStr
+    	return None
+
+    def isUpphavtKapitel(self):
+    	match = self.reChapterRevoked(self.reader.peekLine())
+    	return match != None
+
+    def isKapitel(self, p=None):
+    	return self.idOfKapitel(p) != None
+
+    def idOfKapitel(self, p=None):
+    	if not p:
+    		p = self.reader.peekParagraph().replace('\n', ' ')
+    	
+    	# Things that might look like the start of a chapter is often
+    	# the start of a paragraph in a section listing the names of chapters
+    	m = self.reChapterId(p)
+    	if m:
+    		if (p.endswith(',') or
+    			p.endswith(';') or
+    			p.endswith(' och') or
+    			p.endswith(' om') or
+    			p.endswith(' samt') or
+    			(p.endswith('.') and not
+    			 (m.span()[1] == len(p) or 
+    			  p.endswith(' m.m.') or
+    			  p.endswith(' m. m.') or
+    			  p.endswith(' m.fl.') or
+    			  p.endswith(' m. fl.') or
+    			  self.reChapterRevoked(p)))):
+    			return None
+
+    		# Sometimes (2005:1207) it's a headline, ref a section
+    		# somewhere else, if '1 kap. ' is followed by '5 §' then 
+    		# that's the case
+    		if (p.endswith(u' §') or
+    			p.endswith(u' §§') or
+    			(p.endswith(u' stycket') and u' § ' in p)):
+    			return None
+    		else:
+    			return m.group(1)
+    	else:
+    		return None
+
+    def isRubrik(self, p=None):
+    	if p == None:
+    		p = self.reader.peekParagraph()
+    		indirect = False
+    	else:
+    		indirect = True
+
+    	if len(p) > 0 and p[0].lower() == p[0] and not p.startswith('/Ruriken'):
+    		return False
+    	if len(p) > 110:
+    		return False
+    	if self.isParagraf(p):
+    		return False
+    	if isNumreradLista(p):
+    		return False
+    	if isStrecksatslista(p):
+    		return False
+    	if (p.endswith('.') and 
+    		not (p.endswith('m.m.') or
+    			 p.endswith('m. m.') or
+    			 p.endswith('m.fl.') or
+    			 p.endswith('m. fl.'))):
+    		return False
+    	if (p.endswith(',') or
+    		p.endswith(':') or
+    		p.endswith('samt') or
+    		p.endswith('eller')):
+    		return False
+    	if self.reChangeNote.search(p):
+    		return False
+    	if p.startswith('/') and p.endswith('./'):
+    		return False
+
+    	try:
+    		nextp = self.reader.peekParagraph(2)
+    	except IOError:
+    		nextp = u''
+
+    	if not indirect:
+    		if (not self.isParagraf(nextp)) and (not self.isRubrik(nextp)):
+    			return False
+
+    	# If this headline is followed by a second headline 
+    	# then that and following headlines are sub headlines
+    	if (not indirect) and self.isRubrik(nextp):
+    		self.currentHeadlineLevel = 1
+
+    	return True
+
+    def isUpphavdParagraf(self):
+    	match = self.reSectionRevoked(self.reader.peekLine())
+    	return match != None
+
+    def isParagraf(self, p=None):
+    	if not p:
+    		p = self.reader.peekParagraph()
+    	
+    	paragrafNr = self.idOfParagraf(p)
+    	if paragrafNr == None:
+    		return False
+    	if paragrafNr == '1':
+    		return True
+
+    	# If the section id is < than the last section id 
+    	# the section is probably a reference and not a new section
+    	if cmp(paragrafNr, self.currentSection) < 0:
+    		#TODO: Does this cmp work?
+    		return False
+    	# Special case, if the first char in the paragraph 
+    	# is lower case, then it's not a paragraph
+    	firstChr = (len(paragrafNr) + len(' § '))
+    	if ((len(p) > firstChr) and
+    		 p.[len(paragrafNr) + len(' § ')].islower())):
+			return False
+
+		return True
+
+	def idOfParagraf(self, p):
+		match = self.reSectionId.match(p)
+		if match:
+			return match.group(1)
+		else:
+			match = self.reSectionIdOld.match(p)
+			if match:
+				return match.group(1)
+			else:
+				return None
+
+	def isTabell(self, p=None, assumeTable=False, reqCols=False):
+		shortLine = 55
+		shorterLine = 52
+		if not p:
+			p = self.reader.peekParagraph()
+
+		# Find tables that formated so the right colum extends an
+		# extra row. Two tables that are read as one.
+		lines = []
+		emptyLeft = False
+		for l in p.split(self.reader.linesep):
+			if l.startswith(' '):
+				emptyLeft = True
+				lines.append(l)
+			else:
+				if emptyLeft:
+					break
+				else:
+					lines.append(l)
+
+		numLines = len(lines)
+		# Trying to guess if this section is a table 
+		# 1. Could be if it's short: 
+		if (assumeTable or numLines > 1) and not reqCols:
+			matches = [l for l in lines if len(l) < shortLine]
+			if numLines == 1 and '  ' in lines[0]:
+				return True
+			if len(matches) == numLines:
+				try:
+					p2 = self.reader.peekParagraph(2)
+				except IOError:
+					p2 = ''
+				try:
+					p3 = self.reader.peekParagraph(3)
+				except IOError:
+					p3 = ''
+				if not assumeTable and not self.isTabell(p2, 
+														 assumeTable=True,
+														 reqCols=True):
+					return False
+				# If the section has one row, it _could_ be a short headline.
+				# If it's followed by a paragraf then the table has ended
+				elif numLines == 1:
+					if self.isParagraf(p2):
+						return False
+					if self.isRubrik(p2) and self.isParagraf(p3):
+						return False
+					# If this is the case, then it's probably the transit from 
+					# tabel to 'Övergångsbestämmelserna'
+					if self.isOvergangsbestammelser():
+						return False
+					if self.isBilaga():
+						return False
+				return True
+
+		# 2. Has more than one space in a row on each row
+		matches = [l for l in lines if '  ' in l]
+		if numLines > 1 and len(matches) == numLines:
+			return True
+
+		# 3. Is short (1.) or has the spaces in (2.)
+		if (assumeTable or numLines > 1) and not reqCols:
+			matches = [l for l in lines if '  ' in l or len(l) < shorterLine]
+			if len(matches) == numLines:
+				return True
+
+		# 4. Is one row with clear tabelseperation
+		if numLines == 1 and '   ' in l:
+			return True
+
+		return False
+
+	def isNumreradLista(self, p=None):
+		return self.idOfNumreradLista(p) != None
+
+	def idOfNumreradLista(self, p=None):
+		if not p:
+			p = self.reader.peekLine()
+		match = self.reDottedNumber.match(p)
+		if match != None:
+			return match.group(1).replace(' ', '')
+		else:
+			match = self.reNumberRightPara(p)
+			if match != None:
+				return match.group(1).replace(' ', '')
+
+		return None 
+
+	def isStecksatsLista(self, p=None):
+		if not p:
+			p = self.reader.peekLine()
+
+		return (p.startswith('- ') or
+				p.startswith(u'\x96') or
+				p.startswith('--'))
+
+	def isBokstavsLista(self):
+		return self.idOfBokstavsLista() != None
+
+	def idOfBokstavsLista(self):
+		p = self.reader.peekLine()
+		match = self.reBokstavsLista.match(p)
+		if match != None:
+			return match.group(1).replace(' ', '')
+		return None
+
+	def isOvergangsbestammelser(self):
+		sep = [u'Övergångsbestämmelser',
+			   u'Ikraftträdande- och övergångsbestämmelser',
+			   u'Övergångs- och ikraftträdandebestämmelser']
+		l = self.reader.peekLine()
+		if l not in sep:
+			fuzz = difflib.get_close_matches(l, sep, 1, 0.9)
+			if fuzz:
+				pass
+				#TODO: Log warning, did you mean?
+			else:
+				return False
+		try:
+			# If the sep 'Övergångsbestämmelser' is followed by a 
+			# regular paragraph, it's probably not a sep, but an 
+			# ordinary headline.
+			np = self.reader.peekParagraph(2)
+			if self.isParagraf(np):
+				return False
+		except IOError:
+			pass
+
+		return True
+
+	def isOvergangsbestammelse(self):
+		return self.reSimpleSfsId.match(self.reader.peekLine())
+
+	def isBilaga(self):
+		(line, upphor, ikrafttrader) = self.andringsDatum(self.reader.peekLine())
+		return (line in (u'Bilaga', 
+						 u'Bilaga*',
+						 u'Bilaga *',
+						 u'Bilaga 1',
+						 u'Bilaga 2',
+						 u'Bilaga 3',
+						 u'Bilaga 4',
+						 u'Bilaga 5',
+						 u'Bilaga 6'))
 
 class SFSController(Source.Controller):
 	
