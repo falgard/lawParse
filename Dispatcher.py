@@ -1,19 +1,22 @@
 #!/usr/bin/env python
 # -*- coding: iso-8859-1 -*-
 
+import sys
+
 class Dispatcher:
 
 	def Dispatch(self, argv):
-		#print "Dispatcher"
-		#print self
-		#print argv
-		if len(argv) < 2:
+
+		coding = 'utf-8' if sys.stdin.encoding == 'UTF-8' else 'iso-8859-1'
+		myArgs = [arg.decode(coding) for arg in argv]
+
+		if len(myArgs) < 2:
 			print "No argument given"
 			#Add availableArgs() 
 			print "Available argumenst: foo, bar, ..."
 			return
-
-		action = argv[1]
+			
+		action = myArgs[1]
 
 		func = getattr(self,action)
 		func()

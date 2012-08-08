@@ -98,8 +98,14 @@ class Controller(object):
 				return False
 		return True
 
+	def _htmlName(self, f):
+		"""Return a XHTML file name for the given file"""
+		if not isinstance(f, unicode):
+			raise Exception("WARNING: _htmlName called with non unicode name")
+		return u'%s/%s/generated/%s.html' % (self.baseDir, self.moduleDir, f)
+		
 	def _xmlName(self, f):
-		"""Returns a XHTML file name for the given file"""
+		"""Returns a XML file name for the given file"""
 		if not isinstance(f, unicode):
 			raise Exception("WARNING: _xmlName called with non unicode name")
 		return u'%s/%s/parsed/%s.xht2' % (self.baseDir, self.moduleDir, f)
