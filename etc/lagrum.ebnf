@@ -1,17 +1,15 @@
 # -*- coding: iso-8859-1  -*-
 # ------------ lagrum.ebnf ----------------
 
-# EBNF syntax specific for lagrum
-
 sfsrefs              ::= (ExternalRefs/MultipleGenericRefs/ChapterSectionRefs/IndividualChapterSectionRefs/SectionPieceItemRefs/SectionPieceRefs/SectionRefs/SectionPieceExternalRefs/ExternalChapterSectionRefs/PieceAndItemRefs/SectionItemRefs)
 # this list overlaps with GenericRef
 sfsref               ::= (ChangeRef/ExternalRef/ChapterSectionPieceItemRef/ChapterSectionPieceRef/ChapterSectionRef/SectionPieceItemRef/SectionElementRef/SectionPieceRef/SectionSentenceRef/SectionItemRef/ChapterRef/SectionRef/PieceItemRef/PieceRef/SFSNr/LawRef/NamedExternalLawRef)
 
 # testing SectionItemRefAndSectionItemRefs, a ugly special case for string on the form
-# "6 Â§ 1 eller 7 Â§ 1 eller 2 fÃ¶rmÃ¥nsrÃ¤ttslagen (1970:979)"
+# "6 § 1 eller 7 § 1 eller 2 förmånsrättslagen (1970:979)"
 SectionItemRefAndSectionItemRefs ::= SectionItemRef, WAndOrW, SectionItemRefs
 
-# Multiple References
+# MULTIPLE REFERENCES
 
 # Ideally, I'd like to simplify the definition of ExternalRefs to that
 # of SectionPieceExternalRefs, which should suffice for most kinds of
@@ -33,36 +31,36 @@ ChapterSectionRefs    ::= ChapterRef, Whitespace, SectionRefs
 
 ChapterSectionPieceRefs ::= ChapterRef, Whitespace, SectionPieceRefs
 
-# Things like '8 kap. 1 Â§, 2 Â§ och 6Â§'
+# Things like '8 kap. 1 §, 2 § och 6§'
 IndividualChapterSectionRefs ::= ChapterSectionRef, (Comma, Whitespace, SectionRef)*, Whitespace, And, Whitespace, SectionRef
 
-# Things like '9 kap. 15 eller 16 Â§'
+# Things like '9 kap. 15 eller 16 §'
 # AlternateChapterSectionRefs ::= ChapterRef, Whitespace, SectionRefID, Whitespace, Or, Whitespace, SectionRef
 
 AlternateChapterSectionRefs  ::= ChapterRef, (IntervalOrSingle,CommaSpace)*, Whitespace, IntervalOrSingle, Whitespace,Or,Whitespace, SectionRef
 
 # is the PieceRef/PieceRefID alternative really neccesary? Won't it do
 # with just PieceRef? Nope, see testcase 1960-729-49a-4.txt (or just
-# the test string '2 Â§ andra och tredje styckena')
+# the test string '2 § andra och tredje styckena')
 SectionPieceRefs      ::= SectionRef, Whitespace, ((PieceItemRef/PieceRef/PieceRefID), Comma, Whitespace)*, (PieceItemRef/PieceRef/PieceRefID), WAndOrW, (PieceItemRef/PieceRef)
 
-# this matches things on the form "3 Â§ andra stycket 2-4"
+# this matches things on the form "3 § andra stycket 2-4"
 SectionPieceItemRefs  ::= SectionRef, Whitespace, PieceRef, Whitespace, ItemRef, Whitespace?, Hyphen, Whitespace?, ItemRef
 
-# Things like '2, 4-6 och 8 Â§Â§' 
+# Things like '2, 4-6 och 8 §§' 
 SectionRefs           ::= (IntervalOrSingle,CommaSpace/WAndOrW)*, LastIntervalOrSingle
 
-# Things like '1 Â§, 2 Â§ och 6 Â§' -- NOTE: this production is not referenced!
+# Things like '1 §, 2 § och 6 §' -- NOTE: this production is not referenced!
 IndividualSectionRefs::= (SectionRef, Comma, Whitespace)*, SectionRef, Comma, Whitespace, And, Whitespace, SectionRef
 
-# This is a special-case rule for things like "fÃ¶rsta stycket och 3"
+# This is a special-case rule for things like "första stycket och 3"
 PieceAndItemRefs     ::= PieceRef, WAndOrW, ItemRef
 
-# This is a very greedy rule, it could easily match "6 Â§ 1 eller 7" in
-# "6 Â§ 1 eller 7 Â§ 1", which is not what we want. Therefore, it's not
+# This is a very greedy rule, it could easily match "6 § 1 eller 7" in
+# "6 § 1 eller 7 § 1", which is not what we want. Therefore, it's not
 # included in the list of GenericRefs above. See testcase
 # SectionItems.txt (which we can't handle fully) for example.
-SectionItemRefs     ::= SectionRef, Whitespace, ItemRef, WAndOrW, ItemRef, ?-' Â§'
+SectionItemRefs     ::= SectionRef, Whitespace, ItemRef, WAndOrW, ItemRef, ?-' §'
 PieceItemRefs       ::= PieceRef, Whitespace, ItemRefs
 ItemRefs            ::= (ItemRef, Comma, Whitespace)*, ItemRef, WAndOrW, ItemRef
 
@@ -79,13 +77,13 @@ LastIntervalOrSingle ::= (SingleSectionRef, Whitespace?, (Hyphen,Hyphen?)/AndOr,
 LastSectionRefID     ::= SectionRefID
 
 TheLaw		     ::= 'lagen'
-LawSynonyms          ::= ('lagens'/'balkens'/'fÃ¶rordningens'/'formens'/'ordningens'/'lagen'/'balken'/'fÃ¶rordningen'/'formen'/'ordningen'/'kungÃ¶relsen'/'lag'/'fÃ¶rordning'/'stadgan')
+LawSynonyms          ::= ('lagens'/'balkens'/'förordningens'/'formens'/'ordningens'/'lagen'/'balken'/'förordningen'/'formen'/'ordningen'/'kungörelsen'/'lag'/'förordning'/'stadgan')
 
 # SINGLE REFERENCES
 # dont forget, when adding a new top-level construct, to add it to the
 # 'ref' construct above
 
-ChangeRef ::= ('Lag'/'lag'/'FÃ¶rordning'/'fÃ¶rordning'),Whitespace,SFSNr,('.'/?-(' '/','))
+ChangeRef ::= ('Lag'/'lag'/'Förordning'/'förordning'),Whitespace,SFSNr,('.'/?-(' '/','))
 
 ExternalRef          ::= GenericRef, Whitespace, ExternalLaw
 
@@ -93,7 +91,7 @@ ExternalLaw          ::= (AnonymousExternalLaw/NamedExternalLawRef/SameLaw)
 AnonymousExternalLaw ::= (In, Whitespace)?, LawSynonyms, Whitespace, SFSNr
 NamedExternalLawRef     ::= NamedLaw, (Whitespace, SFSNr)?
 NamedLaw		::= (char/'-'/'_')+, Pipe, LawSynonyms
-SameLaw			::= 'samma lag'/'nÃ¤mnda lag'/'samma fÃ¶rordning'/'nÃ¤mnda fÃ¶rordning'
+SameLaw			::= 'samma lag'/'nämnda lag'/'samma förordning'/'nämnda förordning'
 
 GenericRef            ::= (ChapterSectionPieceItemRef/ChapterSectionPieceSentenceRef/ChapterSectionPieceRef/ChapterSectionItemRef/ChapterSectionSentenceRef/ChapterSectionRef/SectionPieceItemRef/SectionPieceSentenceRef/SectionElementRef/SectionPieceRef/SectionSentenceRef/SectionItemRef/SectionRef/ChapterRef)
 
@@ -107,12 +105,12 @@ ChapterSectionRef              ::= ChapterRef, Whitespace, SectionRef
 SFSNr      ::= LeftParen, Whitespace?, LawRef, Whitespace?,RightParen
 LawRef     ::= LawRefID
 LawRefID   ::= LangtAr, Colon, ('bih.',' '?)?, number, ('.',digit)?, (Whitespace, ('s.', Whitespace?)?, digit+)?
-SectionRef ::= SectionRefID, Whitespace, 'Â§'
+SectionRef ::= SectionRefID, Whitespace, '§'
 
 # Note the use of SectionRefChar instead of just char -- it's to avoid
-# matching things like '23 och 25 Â§Â§'. A hack, but it will have to do
+# matching things like '23 och 25 §§'. A hack, but it will have to do
 # for now. Actually no, we got to fix it, because it can't handle '23
-# eller 25 Â§Â§'. Oh look, the LookAheadOperator with negative match
+# eller 25 §§'. Oh look, the LookAheadOperator with negative match
 # ('?-char') to the rescue!
 SectionRefID      ::= number, (Whitespace, SectionRefChar, ?-char)?
 ChapterRef        ::= ChapterRefID, c"kap."/c"kap"
@@ -138,4 +136,4 @@ ItemRefID         ::= number/(ItemRefChar, ?-char), (Whitespace,ItemRefChar,?-ch
 ItemNumericRefID  ::= number/ordinal, (Whitespace,ItemRefChar,?-char)?
 ItemRefChar       ::= [a-h]/[j-z]
 
-# ------------ end of lagrum.ebnf ----------------
+# ------------ end of base.ebnf ----------------
