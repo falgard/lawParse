@@ -53,7 +53,7 @@ class TextReader:
 			self.data = ustring
 
 		self.currPos = 0
-		self.maxpos = len(self.data)
+		self.maxPos = len(self.data)
 		self.lastread = u''
 
 	def __iter__(self):
@@ -86,8 +86,16 @@ class TextReader:
 		else:
 			return res
 
+	def read(self, size=0):
+		self.lastread = self.data[self.currPos:self.currPos + size]
+		self.currPos += len(self.lastread)
+		return self.__process(self.lastread)
+
 	def readLine(self, size=None):
 		return self.readChunk(self.linesep)
+
+	def eof(self):
+		return (self.currPos == self.maxPos)
 
 	def cue(self, string):
 		idx = self.data.find(string, self.currPos)
@@ -114,6 +122,25 @@ class TextReader:
 		(self.lastread, self.currPos) = self.__find(delimiter, self.currPos)
 		return self.__process(self.lastread)
 
+	def lastread(self):
+		return self.__process(self.lastread)
+
+	def peekLine(self, times=1):
+		return self.peekChunk(self.linesep, times)
+
+	def peekParagraph(self, times=1):
+		return self.peekChunk(self.linesep * 2, times)
+
+	def peekChunk(self, delimiter, times=1):
+		oldPos = self.currPos
+		for i in range(times):
+			(res, newPos) = self.__find(delimiter, oldPos)
+			if newPos == oldPos:
+				raise IOError('Peek past EOF')
+			else:
+				oldPos = newPos
+		return self.__process(res)
+
 	def getReader(self, callableObj, *args, **kwargs):
 		"""Treats the result of a read, peek or prev method as a new
 		TextReader. Useful to process pages in page-oriented documents"""
@@ -121,7 +148,7 @@ class TextReader:
 		clone = copy.copy(self)
 		clone.data = res
 		clone.currPos = 0
-		clone.maxpos = len(clone.data)
+		clone.maxPos = len(clone.data)
 		return clone
 
 	def getIterator(self, callableObj, *args, **kwargs):

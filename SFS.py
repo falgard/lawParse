@@ -8,23 +8,28 @@ import sys
 import re
 import unicodedata
 import codecs
+import difflib
 import htmlentitydefs
 from tempfile import mktemp
 from datetime import date, datetime
+from collections import defaultdict
 
 #3rd party libs
-from rdflib import Namespace, RDFS
+from rdflib import Graph
+from rdflib import Namespace, RDFS, RDF, URIRef, Literal
 
 #Own libs
 import Source
-from Reference import Reference, Link, LinkSubject
+from Reference import Reference, Link, LinkSubject, ParseError
 import Util
 from Dispatcher import Dispatcher
 from DataObjects import CompoundStructure, MapStructure, \
-	 UnicodeStructure, PredicateType, DateStructure, TemporalStructure
+	 UnicodeStructure, PredicateType, DateStructure, \
+	 TemporalStructure, OrdinalStructure
 from TextReader import TextReader
 
 __moduledir__ = "sfs"
+__scripDir__ = os.getcwd()
 
 class Forfattning(CompoundStructure, TemporalStructure):
 	pass
@@ -37,8 +42,16 @@ class Rubrik(UnicodeStructure, TemporalStructure):
 		super(Rubrik,self).__init__(*args, **kwargs)
 
 class Stycke(CompoundStructure):
+	fragLabel = 'S'
 	def __init__(self, *args, **kwargs):
-		pass
+		self.id = kwargs['id'] if 'id' in kwargs else None
+		super(Stycke,self).__init__(*args, **kwargs)
+
+class Listelement(CompoundStructure, OrdinalStructure):
+	fragLabel = 'N'
+	def __init__(self, *args, **kwargs):
+		self.id = kwargs['id'] if 'id' in kwargs else None
+		super(Listelement,self).__init__(*args, **kwargs)
 
 class NumreradLista(CompoundStructure):
 	pass
@@ -120,6 +133,14 @@ class UnicodeSubject(PredicateType, UnicodeStructure):
 class DateSubject(PredicateType, DateStructure):
 	pass
 
+def FilenameToSfsNr(filename):
+	"""Converts a filename to a SFSnr 1909/bih._29_s.1 to 1909:bih 29 s.1"""
+	(dir,file) = filename.split('/')
+	if file.startswith('RFS'):
+		return re.sub(r'(\d{4})/([A-Z]*)(\d*)( [AB]|)(-(\d+-\d+|first-version)|)',r'\2\1:\3', filename.replace('_',' '))
+	else:
+		return re.sub(r'(\d{4})/(\d*( s[\. ]\d+|))( [AB]|)(-(\d+-\d+|first-version)|)',r'\1:\2', filename.replace('_',' '))
+
 class RevokedDoc(Exception):
 	"""Thrown when a doc that is revoked is being parsed"""
 	pass
@@ -135,10 +156,40 @@ RINFOEX = Namespace(Util.ns['rinfoex'])
 
 class SFSParser(Source.Parser):
 
-	reSimpleSfsId = re.compile(r'(\d{4}:\d+)\s*$')
+	# Regexpression for parsing SFS documents
+	reSimpleSfsId 		= re.compile(r'(\d{4}:\d+)\s*$')
+	reSearchSfsId		= re.compile(r'\((\d{4}:\d+)\)').search
+	reElementId 		= re.compile(r'^(\d+) mom\.')
+	reChapterId			= re.compile(r'^(\d+( \w|)) [Kk]ap.').match
+	reSectionId 		= re.compile(r'^(\d+ ?\w?) §[ \.]')
+	reSectionIdOld		= re.compile(r'^§ (\d+ ?\w?).')
+	reChangeNote		= re.compile(ur'(Lag|Förordning) \(\d{4}:\d+\)\.?$')
+	reChapterRevoked	= re.compile(r'^(\d+( \w|)) [Kk]ap. (upphävd|har upphävts) genom (förordning|lag) \([\d\:\. s]+\)\.?$').match
+	reSectionRevoked 	= re.compile(r'^(\d+ ?\w?) §[ \.]([Hh]ar upphävts|[Nn]y beteckning (\d+ ?\w?) §) genom ([Ff]örordning|[Ll]ag) \([\d\:\. s]+\)\.$').match
+	
+	reDottedNumber		= re.compile(r'^(\d+ ?\w?)\. ')
+	reBokstavsLista		= re.compile(r'^(\w)\) ')
+	reNumberRightPara	= re.compile(r'^(\d+)\) ').match
+	reBullet			= re.compile(ur'^(\-\-?|\x96) ')
+
+	reRevokeDate 		= re.compile(ur'/(?:Rubriken u|U)pphör att gälla U:(\d+)-(\d+)-(\d+)/') 
+	reRevokeAuth		= re.compile(ur'/Upphör att gälla U:(den dag regeringen bestämmer)/')
+	reEntryIntoForceDate = re.compile(ur'/(?:Rubriken t|T)räder i kraft I:(\d+)-(\d+)-(\d+)/')
+	reEntryIntoForceAuth = re.compile(ur'/Träder i kraft I:(den dag regeringen bestämmer)/')
+
+	reDefinitions 		= re.compile(r'^I (lagen|förordningen|balken|denna lag|denna förordning|denna balk|denna paragraf|detta kapitel) (avses med|betyder|används följande)').match
+	reBrottsDef 		= re.compile(ur'\b(döms|dömes)(?: han)?(?:,[\w§ ]+,)? för ([\w ]{3,50}) till (böter|fängelse)', re.UNICODE).search
+	reBrottsDefAlt 		= re.compile(ur'[Ff]ör ([\w ]{3,50}) (döms|dömas) till (böter|fängelse)', re.UNICODE).search
+	reDehypenate		= re.compile(r'\b- (?!(och|eller))',re.UNICODE).sub
+	reParantesDef 		= re.compile(ur'\(([\w ]{3,50})\)\.', re.UNICODE).search
+	reLoptextDef		= re.compile(ur'^Med ([\w ]{3,50}) (?:avses|förstås) i denna (förordning|lag|balk)', re.UNICODE).search
+	# Use this to ensure that strings converted to roman numerals are legal
+	reRomanNumMatcher = re.compile('^M?M?M?(CM|CD|D?C?C?C?)(XC|XL|L?X?X?X?)(IX|IV|V?I?I?I?)$').match
 
 	def __init__(self):
 		self.lagrumParser = Reference(Reference.LAGRUM)
+		self.forarbeteParser = Reference(Reference.FORARBETEN)
+
 		self.currentSection = u'0'
 		self.currentHeadlineLevel = 0
 		Source.Parser.__init__(self)
@@ -150,7 +201,7 @@ class SFSParser(Source.Parser):
 			for file in filelist:
 				if os.path.getmtime(file) < timestamp:
 					timestamp = os.path.getmtime(file)
-		reg = self._parseSFSR(files['sfsr'])
+		registry = self._parseSFSR(files['sfsr'])
 		
 		#Extract the plaintext and create a intermediate file for storage
 		try:
@@ -163,19 +214,77 @@ class SFSParser(Source.Parser):
 			f.close()
 			Util.replaceUpdated(tmpFile, txtFile)
 			
-			meta = self._parseSFST(txtFile, reg)
+			(meta, body) = self._parseSFST(txtFile, registry)
 			
 			#TODO: Add patch handling? 
 
 		except IOError:
 			#TODO: Add Warning extracting plaintext failed
 
-			# TODO: Create Forfattningsinfo + forfattning from 
-			# what we know from the SFSR data 
-			pass
+			meta = ForfattningsInfo()
+			meta['Rubrik'] = registry.rubrik
+			meta[u'Utgivare'] = LinkSubject(u'Regeringskansliet',
+											uri=self.findAuthRec('Regeringskansliet'),
+											predicate=self.labels[u'Utgivare'])
+			
+			fldmap = {u'SFS-nummer' : u'SFS nr',
+					  u'Ansvarig myndighet' : u'Departement/ myndighet'}
 
-		#Add extra info 
+			for k,v in registry[0].items():
+				if k in fldmap:
+					meta[fldmap[k]] = v
+			docUri = self.lagrumParser.parse(meta[u'SFS nr'])[0].uri
+			meta[u'xml:base'] = docUri
+			
+			body = Forfattning()
 
+			kwargs = {'id':u'S1'}
+			s = Stycke([u'(Lagtext saknas)'], **kwargs)
+			body.append(s)
+
+		meta[u'Konsolideringsunderlag'] = []
+		meta[u'Förarbeten'] = []
+		for rp in registry:
+			uri = self.lagrumParser.parse(rp['SFS-nummer'])[0].uri
+			meta[u'Konsolideringsunderlag'].append(uri)
+			if u'Förarbeten' in rp:
+				for node in rp[u'Förarbeten']:
+					if isinstance(node, Link):
+						meta[u'Förarbeten'].append(node.uri)
+		meta[u'Senast hämtad'] = DateSubject(datetime.fromtimestamp(timestamp), predicate='rinfoex:senastHamtad')
+
+		g = Graph()
+		g.load(__scripDir__+'/etc/sfs-extra.n3', format='n3')
+
+		for obj in g.objects(URIRef(meta[u'xml:base']), DCT['alternate']):
+			meta[u'Förkortning'] = unicode(obj)
+		
+		obs = None
+		for p in body:
+			if isinstance(p, Overgangsbestammelser):
+				obs = p
+				break
+		if obs:
+			for ob in obs:
+				found = False
+				for rp in registry:
+					if rp[u'SFS-nummer'] == ob.sfsnr:
+						if u'Övergångsbestämmelse' in rp and rp[u'Övergångsbestämmelse'] != None:
+							pass
+						else:
+							rp[u'Övergångsbestämmelse'] = ob
+						found = True
+						break
+				if not found:
+					kwargs = {'id':u'L'+ob.sfsnr,
+							  'uri':u'http://rinfo.lagrummet.se/publ/sfs/'+ob.sfsnr}
+					rp = Registerpost(**kwargs)
+					rp[u'SFS-nummer'] = ob.sfsnr
+					rp[u'Övergångsbestämmelse'] = ob
+
+		xhtml = self.generateXhtml(meta, body, registry, __moduledir__,globals())										  					
+		return xhtml
+		
 	#Meta data found in both SFST header and SFST data
 	labels = {u'Ansvarig myndighet':		DCT['creator'],
 			  u'SFS-nummer':				RINFO['fsNummer'],
@@ -186,8 +295,12 @@ class SFSParser(Source.Parser):
 			  u'Utfärdad':					RINFO['utfardandedatum'],
 			  u'Ikraft':					RINFO['Ikrafttradandesdatum'],
 			  u'Observera':					RDFS.comment,
+			  u'Omtryck':                	RINFOEX['omtryck'],
+			  u'Tidsbegränsad':          	RINFOEX['tidsbegransad'],
+			  u'Ändring införd':			RINFO['konsolideringsunderlag'],
 			  u'Övrigt':					RDFS.comment,
-			  u'Ändring införd':			RINFO['konsolideringsunderlag']
+			  u'Författningen har upphävts genom': RINFOEX['upphavdAv'],
+			  u'Upphävd':                RINFOEX['upphavandedatum']
 	}
 
 
@@ -199,7 +312,7 @@ class SFSParser(Source.Parser):
 			soup = Util.loadSoup(f)
 			r.rubrik = Util.elementText(soup.body('table')[2]('tr')[1]('td')[0])
 			changes = soup.body('table')[3:-2]
-			#print changes
+
 			for table in changes:
 				kwargs = {'id': 'undefined',
 						  'uri': u'http://rinfo.lagrummet.se/publ/sfs/undefined'}
@@ -249,15 +362,39 @@ class SFSParser(Source.Parser):
 							rp[key] = DateSubject(datetime.strptime(val[:10], '%Y-%m-%d'), predicate=self.labels[key])
 						elif key == u'Omfattning':
 							rp[key] = []
-							#TODO
-							#
-							# for ...
+							for changecat in val.split(u'; '):
+								if (changecat.startswith(u'ändr.') or 
+									changecat.startswith(u'ändr ') or 
+									changecat.startswith(u'ändring ')):
+									pred = RINFO['ersatter']
+								elif (changecat.startswith(u'upph.') or 
+									  changecat.startswith(u'utgår')):
+									pred = RINFO['upphaver']
+								elif (changecat.startswith(u'ny') or 
+									  changecat.startswith(u'ikrafttr.') or 
+									  changecat.startswith(u'ikrafftr.') or 
+									  changecat.startswith(u'ikraftr.') or 
+									  changecat.startswith(u'ikraftträd.') or 
+									  changecat.startswith(u'tillägg')):
+									pred = RINFO['inforsI']
+								elif (changecat.startswith(u'nuvarande') or 
+									  changecat == 'begr. giltighet' or 
+									  changecat == 'Omtryck' or 
+									  changecat == 'omtryck' or 
+									  changecat == 'forts.giltighet' or 
+									  changecat == 'forts. giltighet' or 
+									  changecat == 'forts. giltighet av vissa best.'):
+									pred = None
+								else:
+									pred = None
+
+								rp[key].extend(self.lagrumParser.parse(changecat, docUri, pred))
+								rp[key].append(u';')
+							rp[key] = rp[key][:-1]
 						elif key == u'F\xf6rarbeten':
-							#TODO
-							pass
+							rp[key] = self.forarbeteParser.parse(val, docUri, RINFO['forarbete'])							
 						elif key == u'CELEX-nr':
-							#TODO
-							pass
+							rp[key] = self.forarbeteParser.parse(val, docUri, RINFO['forarbete'])							
 						elif key == u'Tidsbegränsad':
 							rp[key] = DateSubject(datetime.strptime(val[:10], '%Y-%m-%d'), predicate=self.labels[key])
 							if rp[key] < datetime.today():
@@ -292,12 +429,166 @@ class SFSParser(Source.Parser):
 	def _descapeEntity(self, m):
 		return unichr(htmlentitydefs.name2codepoint[m.group(1)])
 
-	def _parseSFST(self, txtFile, reg):
+	def _termToSubject(self, term):
+		cap = term[0].upper() + term[1:]
+		return u'http://lagen.nu/concept/%s' % cap.replace(' ', '_')
+
+	# Post process document tree and does three things, 
+	# 	1. Finds definitions for terms in the text
+	# 	2. Finds linkable objects that have their own URIs (kapitel, paragrafer, etc..)
+	# 	3. Finds 'lagrumshänvisningar' in the text
+	def _constructIds(self, element, prefix, baseUri, skipFrags=[], findDefs=False):
+
+		findDefsRecursive = findDefs
+		counters = defaultdict(int)
+		if isinstance(element, CompoundStructure):
+			# Step 1
+			if isinstance(element, Paragraf):
+				if self.reDefinitions(element[0][0]):
+					findDefs = 'normal'
+				if (self.reBrottsDef(element[0][0]) or 
+				   	self.reBrottsDefAlt(element[0][0])):
+					findDefs = 'brottsrubricering'
+				if self.reParantesDef(element[0][0]):
+					findDefs = 'loptext'
+				findDefsRecursive = findDefs
+
+			# Step 1 + 3
+			if (isinstance(element, Stycke) or
+				isinstance(element, Listelement) or
+				isinstance(element, TabellCell)):
+				nodes = []
+				term = None
+
+				if findDefs:
+					elementText = element[0]
+					termDelimiter = ':'
+
+					if isinstance(element, TabellCell):
+						if elementText != 'Beteckning':
+							term = elementText
+					elif isinstance(element, Stycke):
+						# There's some special cases when ':' is not
+						# the delimiter, ex: "antisladdsystem: ett tekniskt.."
+						if findDefs == 'normal':
+							if not self.reDefinitions(elementText):
+								if ' - ' in elementText:
+									if (':' in elementText and
+										(elementText.index(':') < elementText.index(' - '))):
+										termDelimiter = ':'
+									else:
+										termDelimiter = ' - '
+								m = self.reSearchSfsId(elementText)
+
+								if (termDelimiter == ':' and 
+								   m and 
+								   m.start() < elementText.index(':')):
+									termDelimiter = ' '
+								if termDelimiter in elementText:
+									term = elementText.split(termDelimiter)[0]
+
+						m = self.reBrottsDef(elementText)
+						if m: 
+							term = m.group(2)
+
+						m = self.reBrottsDefAlt(elementText)
+						if m:
+							term = m.group(1)
+
+						m = self.reParantesDef(elementText)
+						if m:
+							term = m.group(1)
+
+						m = self.reLoptextDef(elementText)
+						if m:
+							term = m.group(1)
+					elif isinstance(element, Listelement):
+						for rx in (self.reBullet,
+								   self.reDottedNumber,
+								   self.reBokstavsLista):
+							elementText = rx.sub('', elementText)
+						term = elementText.split(termDelimiter)[0]
+
+					# Longest legitimate term is < 68 chars 
+					if term and len(term) < 68:
+						term = Util.normalizedSpace(term)
+						termNode = LinkSubject(term, uri=self._termToSubject(term), predicate='dct:subject')
+						findDefsRecursive = False
+					else:
+						term = None
+
+				for p in element:
+					if isinstance(p, unicode):
+						s = ' '.join(p.split())
+						s = s.replace(u'\x96', '-')
+						# Make all links have a dct:references
+						# predicate, needed to get useful RDF triples
+						parsedNodes = self.lagrumParser.parse(s, baseUri+prefix, 'dct:references')
+
+						for n in parsedNodes:
+							if term and isinstance(n, unicode) and term in n:
+								(head, tail) = n.split(term, 1)
+								nodes.extend((head,termNode,tail))
+							else:
+								nodes.append(n)
+						idx = element.index(p)
+				element[idx:idx+1] = nodes
+
+			# Construct the IDs
+			for p in element:
+				counters[type(p)] += 1
+				if hasattr(p, 'fragLabel'):
+					elementType = p.fragLabel
+					if hasattr(p, 'ordinal'):
+						elementOrdinal = p.ordinal.replace(' ', '')
+					elif hasattr(p, 'sfsnr'):
+						elementOrdinal = p.sfsnr
+					else:
+						elementOrdinal = counters[type(p)]
+					fragment = '%s%s%s' % (prefix, elementType, elementOrdinal)
+					p.id = fragment
+				else:
+					fragment = prefix
+
+				if ((hasattr(p, 'fragLabel') and
+					 p.fragLabel in skipFrags)):
+					self._constructIds(p, prefix, baseUri, skipFrags,findDefsRecursive)
+				else:
+					self._constructIds(p, fragment, baseUri, skipFrags, findDefsRecursive)
+
+				# After the first row in a table is checked, skip row 2,3,.. 
+				if isinstance(element, TabellRad):
+					findDefsRecursive = False
+
+	def _countElements(self, element):
+		counters = defaultdict(int)
+		if isinstance(element, CompoundStructure):
+			for p in element:
+				if hasattr(p, 'fragLabel'):
+					counters[p.fragLabel] += 1
+					if hasattr(p, 'ordinal'):
+						counters[p.fragLabel + p.ordinal] += 1
+					subCounters = self._countElements(p)
+					for s in subCounters:
+						counters[s] += subCounters[s]
+		return counters
+
+	def _parseSFST(self, txtFile, registry):
 		self.reader = TextReader(txtFile, encoding='iso-8859-1', linesep=TextReader.DOS)
 		self.reader.autostrip = True
-		self.reg = reg
+		self.registry = registry
 		meta = self.makeHeader()
 		body = self.makeForfattning()
+		elements = self._countElements(body)
+
+		if 'K' in elements and elements['P1'] < 2:
+			skipFrags = ['A', 'K']
+		else:
+			skipFrags = ['A']
+
+		self._constructIds(body, u'', u'http://rinfo.lagrummet.se/publ/sfs/%s#' % (FilenameToSfsNr(self.id)), skipFrags)
+
+		return meta,body
 
 	def makeHeader(self):
 		subReader = self.reader.getReader(self.reader.readChunk, self.reader.linesep * 4)
@@ -317,7 +608,7 @@ class SFSParser(Source.Parser):
 				meta[key] = DateSubject(datetime.strptime(val[:10], '%Y-%m-%d'), predicate=self.labels[key])
 				if meta[key] < datetime.today():
 					raise RevokedDoc()
-			elif key == u'Department/ myndighet':
+			elif key == u'Departement/ myndighet':
 				authRec = self.findAuthRec(val)
 				meta[key] = LinkSubject(val, uri=unicode(authRec), predicate=self.labels[key])
 			elif key == u'Ändring införd':
@@ -377,30 +668,30 @@ class SFSParser(Source.Parser):
 
 		while not self.reader.eof():
 			stateHandler = self.guesState()
-			if stateHandler == self.makeOvergangsbestemmelse:
-				res = self.makeOvergangsbestemmelser(rubrikMissing=True)
+
+			if stateHandler == self.makeOvergangsbestammelse:
+				res = self.makeOvergangsbestammelser(rubrikMissing=True)
 			else:
 				res = stateHandler()
 			if res != None:
 				b.append(res)
-		
 		return b
 
 	def makeAvdelning(self):
 		avdNr = self.idOfAvdelning()
 		p.Avdelning(rubrik=self.reader.readLine(),
 					ordinal=avdNr,
-					underRubrik=None)
+					underrubrik=None)
 		if (self.reader.peekLine(1) == '' and 
 			self.reader.peekLine(3) == '' and
 			not self.isKapitel(self.reader.peekLine(2))):
 			self.reader.readLine()
-			p.underRubrik = self.reader.readLine()
+			p.underrubrik = self.reader.readLine()
 
 		while not self.reader.eof():
 			stateHandler = self.guesState()
 			if stateHandler in (self.makeAvdelning,
-								self.makeOvergangsbestemmelser,
+								self.makeOvergangsbestammelser,
 								self.makeBilaga):
 				return p
 			else:
@@ -410,17 +701,18 @@ class SFSParser(Source.Parser):
 		return p		
 
 	def makeUpphavtKapitel(self):
-		kapNr = self.idOfKapitel()
+		kapitelnummer = self.idOfKapitel()
 		
-		return UpphavtKapitel(self.reader.readLine(), ordinal=kapNr)
+		return UpphavtKapitel(self.reader.readLine(), ordinal=kapitelnummer)
 
 	def makeKapitel(self):
-		kapNr = self.idOfKapitel()
+		kapitelnummer = self.idOfKapitel()
 		paragraf = self.reader.readParagraph()
+
 		(line, upphor, ikrafttrader) = self.andringsDatum(paragraf)
 
 		kwargs = {'rubrik': Util.normalizedSpace(line),
-				  'ordinal': kapNr}
+				  'ordinal': kapitelnummer}
 		if upphor:
 			kwargs['upphor'] = upphor
 		if ikrafttrader:
@@ -431,10 +723,11 @@ class SFSParser(Source.Parser):
 
 		while not self.reader.eof():
 			stateHandler = self.guesState()
+
 			if stateHandler in (self.makeKapitel,
 								self.makeUpphavtKapitel,
 								self.makeAvdelning,
-								self.makeOvergangsbestemmelser,
+								self.makeOvergangsbestammelser,
 								self.makeBilaga):
 				return (k)
 			else:
@@ -454,7 +747,7 @@ class SFSParser(Source.Parser):
 		if ikrafttrader:
 			kwargs['ikrafttrader'] = ikrafttrader
 		if self.currentHeadlineLevel == 2:
-			kwargs['type'] = u'underRubrik'
+			kwargs['type'] = u'underrubrik'
 		elif self.currentHeadlineLevel == 1:
 			self.currentHeadlineLevel = 2
 		r = Rubrik(line, **kwargs)
@@ -462,16 +755,62 @@ class SFSParser(Source.Parser):
 		return r
 
 	def makeUpphavdParagraf(self):
-		paraNr = self.idOfParagraf(self.reader.peekLine())
-		p = UpphavdParagraf(self.reader.readLine(), ordinal=paraNr)
-		self.currentSection = paraNr
+		paragrafnummer = self.idOfParagraf(self.reader.peekLine())
+		p = UpphavdParagraf(self.reader.readLine(), ordinal=paragrafnummer)
+		self.currentSection = paragrafnummer
 
 		return p
 
 	def makeParagraf(self):
-		paraNr = self.idOfParagraf(self.reader.peekLine())
-		p = UpphavdParagraf(self.reader.readLine(), ordinal=paraNr)
-		self.currentSection = paraNr
+		paragrafnummer = self.idOfParagraf(self.reader.peekLine())
+		self.currentSection = paragrafnummer
+		firstLine = self.reader.peekLine()
+		self.reader.read(len(paragrafnummer) + len(u' § '))
+
+		# Some of the old law are split into elements 
+		# called moments, mom. Ex: '1 § 2 mom.'
+		match = self.reElementId.match(firstLine)
+		if self.reElementId.match(firstLine):
+			momentnummer = match.group(1)
+			self.reader.read(len(momentnummer) + len(u' mom. '))
+		else:
+			momentnummer = None
+
+		(fixedLine, upphor, ikrafttrader) = self.andringsDatum(firstLine)
+		self.reader.read(len(firstLine) - len(fixedLine))
+		kwargs = {'ordinal' : paragrafnummer}
+		if upphor:
+			kwargs['upphor'] = upphor
+		if ikrafttrader:
+			kwargs['ikrafttrader'] = ikrafttrader
+		if momentnummer:
+			kwargs['moment'] = momentnummer
+
+		p = Paragraf(**kwargs)
+		
+		stateHandler = self.makeStycke
+		res = self.makeStycke()
+		p.append(res)
+
+		while not self.reader.eof():
+			stateHandler = self.guesState()
+			if stateHandler in (self.makeParagraf,
+								self.makeUpphavdParagraf,
+								self.makeKapitel,
+								self.makeUpphavtKapitel,
+								self.makeAvdelning,
+								self.makeRubrik,
+								self.makeOvergangsbestammelser,
+								self.makeBilaga):
+				return p
+			elif stateHandler == self.blankLine:
+				stateHandler()
+			elif stateHandler == self.makeOvergangsbestammelse:
+				return p
+			else:
+				assert stateHandler == self.makeStycke, 'guessState returned %s, not makeStycke' % stateHandler.__name__
+				res = self.makeStycke()
+				p.append(res)
 
 		return p
 
@@ -489,9 +828,9 @@ class SFSParser(Source.Parser):
 			elif stateHandler == self.blankLine:
 				stateHandler()
 			else:
-				return self
+				return s
 
-		return self
+		return s
 
 	def makeNumreradLista(self):
 		n = NumreradLista()
@@ -572,7 +911,7 @@ class SFSParser(Source.Parser):
 
 		while not self.reader.eof():
 			stateHandler = self.guesState()
-			if stateHandler in (self.makeBilaga, self.makeOvergangsbestemmelser):
+			if stateHandler in (self.makeBilaga, self.makeOvergangsbestammelser):
 				return b
 			res = stateHandler()
 			if res != None:
@@ -584,7 +923,7 @@ class SFSParser(Source.Parser):
 			rubrik = u'[Övergångsbestämmelser]'
 		else:
 			rubrik = self.reader.readParagraph()
-		obs = Overgangsbestemmelser(rubrik=rubrik)
+		obs = Overgangsbestammelser(rubrik=rubrik)
 
 		while not self.reader.eof():
 			stateHandler = self.guesState()
@@ -593,28 +932,28 @@ class SFSParser(Source.Parser):
 
 			res = stateHandler()
 			if res != None:
-				if stateHandler != self.makeOvergangsbestemmelse:
+				if stateHandler != self.makeOvergangsbestammelse:
 					if hasattr(self,'id') and '/' in self.id:
 						sfsnr = FilenameToSfsNr(self.id)
 					else:
 						sfsnr = u'0000:000'
 
-					obs.append(Overgangsbestemmelse([res], sfsnr=sfsnr))
+					obs.append(Overgangsbestammelse([res], sfsnr=sfsnr))
 				else:
 					obs.append(res)
 		return obs
 
 	def makeOvergangsbestammelse(self):
 		p = self.reader.readLine()
-		ob = Overgangsbestemmelse(sfsnr=p)
+		ob = Overgangsbestammelse(sfsnr=p)
 
 		while not self.reader.eof():
 			stateHandler = self.guesState()
-			if stateHandler in (self.makeOvergangsbestemmelse, self.makeBilaga):
+			if stateHandler in (self.makeOvergangsbestammelse, self.makeBilaga):
 				return ob
 			res = stateHandler()
 			if res != None:
-			ob.append(res)
+				ob.append(res)
 
 		return ob
 
@@ -783,179 +1122,179 @@ class SFSParser(Source.Parser):
 				handler = self.makeAvdelning
 			elif self.isUpphavtKapitel():
 				handler = self.makeUpphavtKapitel
-            elif self.isUpphavdParagraf():
-            	handler = self.makeUpphavdParagraf
-            elif self.isKapitel():
-            	handler = self.makeKapitel
-            elif self.isParagraf():
-            	handler = self.makeParagraf
-            elif self.isTabell():
-            	handler = self.makeTabell
-            elif self.isOvergangsbestammelser():
-            	handler = self.makeOvergangsbestammelser
-            elif self.isOvergangsbestammelse():
-            	handler = self.makeOvergangsbestammelse
-            elif self.isBilaga():
-            	handler = self.makeBilaga
-            elif self.isNumreradLista():
-            	handler = self.makeNumreradLista
-            elif self.isStrecksatslista():
-            	handler = self.makeStrecksatsLista
-            elif self.isBokstavslista():
-            	handler = self.makeBokstavsLista
-            elif self.isRubrik():
-            	handler = self.makeRubrik
-            else:
-            	handler = self.makeStycke
-        except IOError:
-        	handler = self.eof
+			elif self.isUpphavdParagraf():
+				handler = self.makeUpphavdParagraf
+			elif self.isKapitel():
+				handler = self.makeKapitel
+			elif self.isParagraf():
+				handler = self.makeParagraf
+			elif self.isTabell():
+				handler = self.makeTabell
+			elif self.isOvergangsbestammelser():
+				handler = self.makeOvergangsbestammelser
+			elif self.isOvergangsbestammelse():
+				handler = self.makeOvergangsbestammelse
+			elif self.isBilaga():
+				handler = self.makeBilaga
+			elif self.isNumreradLista():
+				handler = self.makeNumreradLista
+			elif self.isStrecksatsLista():
+				handler = self.makeStrecksatsLista
+			elif self.isBokstavsLista():
+				handler = self.makeBokstavsLista
+			elif self.isRubrik():
+				handler = self.makeRubrik
+			else:
+				handler = self.makeStycke
+		except IOError:
+			handler = self.eof
+		
+		return handler
 
-        return handler
+	def isAvdelning(self):
+		if '\n' in self.reader.peekParagraph() != '':
+			return False
+		return self.idOfAvdelning() != None
 
-    def isAvdelning(self):
-    	if '\n' in self.reader.peekParagraph() != '':
-    		return False
-    	return self.idOfAvdelning() != None
+	def idOfAvdelning(self):
+		# There's four types of 'Avdelning', this checks for these patterns
+		p = self.reader.peekLine()
+		if p.lower().endswith(u'avdelningen') and len(p.split()) == 2:
+			ordinal = p.split()[0]
+			return unicode(self._sweOrdinal(ordinal))
+		elif p.startswith(u'AVD. ') or p.startswith(u'AVDELNING '):
+			roman = re.split(r'\s+',p)[1]
+			if roman.endswith('.'):
+				roman = roman[:-1]
+			if self.reRomanNumMatcher(roman):
+				return unicode(self._fromRoman(roman))
+		elif p.startswith(u'Avdelning '):
+			roman = re.split(r'\s+',p)[1]
+			if self.reRomanNumMatcher(roman):
+				return unicode(self._fromRoman(roman))
+		elif p[2:6] == 'avd.':
+			if p.isdigit():
+				return p[0]
+		elif p.startswith(u'Avd. '):
+			idStr = re.split(r'\s+',p)[1]
+			if idStr.isdigit():
+				return idStr
+		return None
 
-    def idOfAvdelning(self):
-    	# There's four types of 'Avdelning', this checks for these patterns
-    	p = self.reader.peekLine()
-    	if p.lower().endswith(u'avdelningen') and len(p.split()) == 2:
-    		ordinal = p.split()[0]
-    		return unicode(self._sweOrdinal(ordinal))
-    	elif p.startswith(u'AVD. ') or p.startswith(u'AVDELNING '):
-    		roman = re.split(r'\s+',p)[1]
-    		if roman.endswith('.'):
-    			roman = roman[:-1]
-    		if self.reRomanNumMatcher(roman):
-    			return unicode(self._fromRoman(roman))
-    	elif p.startswith(u'Avdelning '):
-    		roman = re.split(r'\s+',p)[1]
-    		if self.reRomanNumMatcher(roman)
-    			return unicode(self._fromRoman(roman))
-    	elif p[2:6] == 'avd.':
-    		if p.isdigit():
-    			return p[0]
-    	elif p.startswith(u'Avd. '):
-    		idStr = re.split(r'\s+',p)[1]
-    		if idStr.isdigit():
-    			return idStr
-    	return None
+	def isUpphavtKapitel(self):
+		match = self.reChapterRevoked(self.reader.peekLine())
+		return match != None
 
-    def isUpphavtKapitel(self):
-    	match = self.reChapterRevoked(self.reader.peekLine())
-    	return match != None
+	def isKapitel(self, p=None):
+		return self.idOfKapitel(p) != None
 
-    def isKapitel(self, p=None):
-    	return self.idOfKapitel(p) != None
-
-    def idOfKapitel(self, p=None):
-    	if not p:
-    		p = self.reader.peekParagraph().replace('\n', ' ')
+	def idOfKapitel(self, p=None):
+		if not p:
+			p = self.reader.peekParagraph().replace('\n', ' ')
     	
-    	# Things that might look like the start of a chapter is often
-    	# the start of a paragraph in a section listing the names of chapters
-    	m = self.reChapterId(p)
-    	if m:
-    		if (p.endswith(',') or
-    			p.endswith(';') or
-    			p.endswith(' och') or
-    			p.endswith(' om') or
-    			p.endswith(' samt') or
-    			(p.endswith('.') and not
-    			 (m.span()[1] == len(p) or 
-    			  p.endswith(' m.m.') or
-    			  p.endswith(' m. m.') or
-    			  p.endswith(' m.fl.') or
-    			  p.endswith(' m. fl.') or
-    			  self.reChapterRevoked(p)))):
-    			return None
+		# Things that might look like the start of a chapter is often
+		# the start of a paragraph in a section listing the names of chapters
+		m = self.reChapterId(p)
+		if m:
+			if (p.endswith(',') or
+				p.endswith(';') or
+				p.endswith(' och') or
+				p.endswith(' om') or
+				p.endswith(' samt') or
+				(p.endswith('.') and not
+				 (m.span()[1] == len(p) or 
+				  p.endswith(' m.m.') or
+				  p.endswith(' m. m.') or
+				  p.endswith(' m.fl.') or
+				  p.endswith(' m. fl.') or
+				  self.reChapterRevoked(p)))):
+				return None
 
-    		# Sometimes (2005:1207) it's a headline, ref a section
-    		# somewhere else, if '1 kap. ' is followed by '5 §' then 
-    		# that's the case
-    		if (p.endswith(u' §') or
-    			p.endswith(u' §§') or
-    			(p.endswith(u' stycket') and u' § ' in p)):
-    			return None
-    		else:
-    			return m.group(1)
-    	else:
-    		return None
+			# Sometimes (2005:1207) it's a headline, ref a section
+			# somewhere else, if '1 kap. ' is followed by '5 §' then 
+			# that's the case
+			if (p.endswith(u' §') or
+				p.endswith(u' §§') or
+				(p.endswith(u' stycket') and u' § ' in p)):
+				return None
+			else:
+				return m.group(1)
+		else:
+			return None
 
-    def isRubrik(self, p=None):
-    	if p == None:
-    		p = self.reader.peekParagraph()
-    		indirect = False
-    	else:
-    		indirect = True
+	def isRubrik(self, p=None):
+		if p == None:
+			p = self.reader.peekParagraph()
+			indirect = False
+		else:
+			indirect = True
 
-    	if len(p) > 0 and p[0].lower() == p[0] and not p.startswith('/Ruriken'):
-    		return False
-    	if len(p) > 110:
-    		return False
-    	if self.isParagraf(p):
-    		return False
-    	if isNumreradLista(p):
-    		return False
-    	if isStrecksatslista(p):
-    		return False
-    	if (p.endswith('.') and 
-    		not (p.endswith('m.m.') or
-    			 p.endswith('m. m.') or
-    			 p.endswith('m.fl.') or
-    			 p.endswith('m. fl.'))):
-    		return False
-    	if (p.endswith(',') or
-    		p.endswith(':') or
-    		p.endswith('samt') or
-    		p.endswith('eller')):
-    		return False
-    	if self.reChangeNote.search(p):
-    		return False
-    	if p.startswith('/') and p.endswith('./'):
-    		return False
+		if len(p) > 0 and p[0].lower() == p[0] and not p.startswith('/Ruriken'):
+			return False
+		if len(p) > 110:
+			return False
+		if self.isParagraf(p):
+			return False
+		if self.isNumreradLista(p):
+			return False
+		if self.isStrecksatsLista(p):
+			return False
+		if (p.endswith('.') and 
+			not (p.endswith('m.m.') or
+				 p.endswith('m. m.') or
+				 p.endswith('m.fl.') or
+				 p.endswith('m. fl.'))):
+			return False
+		if (p.endswith(',') or
+			p.endswith(':') or
+			p.endswith('samt') or
+			p.endswith('eller')):
+			return False
+		if self.reChangeNote.search(p):
+			return False
+		if p.startswith('/') and p.endswith('./'):
+			return False
 
-    	try:
-    		nextp = self.reader.peekParagraph(2)
-    	except IOError:
-    		nextp = u''
+		try:
+			nextp = self.reader.peekParagraph(2)
+		except IOError:
+			nextp = u''
 
-    	if not indirect:
-    		if (not self.isParagraf(nextp)) and (not self.isRubrik(nextp)):
-    			return False
+		if not indirect:
+			if (not self.isParagraf(nextp)) and (not self.isRubrik(nextp)):
+				return False
 
-    	# If this headline is followed by a second headline 
-    	# then that and following headlines are sub headlines
-    	if (not indirect) and self.isRubrik(nextp):
-    		self.currentHeadlineLevel = 1
+		# If this headline is followed by a second headline 
+		# then that and following headlines are sub headlines
+		if (not indirect) and self.isRubrik(nextp):
+			self.currentHeadlineLevel = 1
 
-    	return True
+		return True
 
-    def isUpphavdParagraf(self):
-    	match = self.reSectionRevoked(self.reader.peekLine())
-    	return match != None
+	def isUpphavdParagraf(self):
+		match = self.reSectionRevoked(self.reader.peekLine())
+		return match != None
 
-    def isParagraf(self, p=None):
-    	if not p:
-    		p = self.reader.peekParagraph()
+	def isParagraf(self, p=None):
+		if not p:
+			p = self.reader.peekParagraph()
     	
-    	paragrafNr = self.idOfParagraf(p)
-    	if paragrafNr == None:
-    		return False
-    	if paragrafNr == '1':
-    		return True
+		paragrafNr = self.idOfParagraf(p)
+		if paragrafNr == None:
+			return False
+		if paragrafNr == '1':
+			return True
 
-    	# If the section id is < than the last section id 
-    	# the section is probably a reference and not a new section
-    	if cmp(paragrafNr, self.currentSection) < 0:
-    		#TODO: Does this cmp work?
-    		return False
-    	# Special case, if the first char in the paragraph 
-    	# is lower case, then it's not a paragraph
-    	firstChr = (len(paragrafNr) + len(' § '))
-    	if ((len(p) > firstChr) and
-    		 p.[len(paragrafNr) + len(' § ')].islower())):
+		# If the section id is < than the last section id 
+		# the section is probably a reference and not a new section
+		if cmp(paragrafNr, self.currentSection) < 0:
+			#TODO: Does this cmp work?
+			return False
+		# Special case, if the first char in the paragraph 
+		# is lower case, then it's not a paragraph
+		firstChr = (len(paragrafNr) + len(' § '))
+		if ((len(p) > firstChr) and
+			 (p[len(paragrafNr) + len(' § ')].islower())):
 			return False
 
 		return True
@@ -1059,7 +1398,7 @@ class SFSParser(Source.Parser):
 
 		return None 
 
-	def isStecksatsLista(self, p=None):
+	def isStrecksatsLista(self, p=None):
 		if not p:
 			p = self.reader.peekLine()
 
@@ -1161,6 +1500,12 @@ class SFSController(Source.Controller):
 			# Actual parsing begins here.
 			p = SFSParser()
 			parsed = p.Parse(f, files)
+			tmpFile = mktemp()
+			out = file(tmpFile, 'w')
+			out.write(parsed)
+			out.close()
+			Util.replaceUpdated(tmpFile, filename)
+			return '(.. sec )'
 
 		except RevokedDoc:
 			Util.remove(filename)

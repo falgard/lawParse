@@ -5,16 +5,21 @@
 #Libs
 import os
 import sys
+import re
 
 #3rd party libs
 from configobj import ConfigObj
 from rdflib import RDFS
 from rdflib.Graph import Graph
+from genshi.template import TemplateLoader
 
 #Own libs
 import Util
 
 __scriptDir__ = os.getcwd()
+
+class ParseError(Exception):
+	pass
 
 class Downloader(object):
 	pass
@@ -22,11 +27,31 @@ class Downloader(object):
 class Parser(object):
 	"""Abstract base class for a document"""
 
+	reNormalizedSpace = re.compile(r'\s+',).sub
+
 	def __init__(self):
 		self.authRec = self.loadAuthRec(__scriptDir__ + "/etc/authrec.n3")
 
 	def Parse(self):
 		raise NotImplementedError
+
+	def generateXhtml(self, meta, body, registry, module, globals):
+		"""Create a XTHML representation of the document"""
+		loader = TemplateLoader(['.', os.path.dirname(__file__)],
+								variable_lookup='lenient')
+		t = loader.load('etc/%s.template.xht2'%module)
+		stream = t.generate(meta=meta, body=body, registry=registry, **globals)
+
+		try:
+			res = stream.render()
+		except Exception, e:
+			raise
+		if 'class="warning"' in res:
+			start = res.index('class="warning">')
+			end = res.index('</',start+16)
+			msg = Util.normalizedSpace(res[start+16:end].decode('utf-8'))
+
+		return res
 
 	def loadAuthRec(self, n3File):
 		"""Load a RDF graph with authority posts in n3-format"""

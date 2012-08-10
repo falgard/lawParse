@@ -97,3 +97,26 @@ class PredicateType(object):
 			self.predicate = RDFS.Resource
 		super(PredicateType, self).__init__(*args, **kwargs)
 
+class OrdinalStructure(object):
+	"""OrdinalStructure has a order number, that doesn't have to 
+	be a digit, can also be '5 a'"""
+	def __init__(self):
+		self.ordinal = None
+
+	def __lt__(self, other):
+		return self.ordinal < other.ordinal
+
+	def __le__(self, other):
+		return self.ordinal <= other.ordinal
+
+	def __eq__(self, other):
+		return self.ordinal == other.ordinal
+
+	def __ne__(self, other):
+		return self.ordinal != other.ordinal
+		
+	def __gt__(self, other):
+		return self.ordinal > other.ordinal
+
+	def __ge__(self, other):
+		return self.ordinal == other.ordinal		

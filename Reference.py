@@ -9,7 +9,7 @@ import re
 
 #3rd party libs
 from rdflib.Graph import Graph
-from rdflib import RDFS, URIRef
+from rdflib import RDF, RDFS, URIRef, Namespace, Literal
 from simpleparse.parser import Parser
 from simpleparse.stt.TextTools.TextTools import tag
 
@@ -20,7 +20,9 @@ from DataObjects import UnicodeStructure, PredicateType
 
 SP_CHARSET = 'iso-8859-1'
 
+
 class Link(UnicodeStructure):
+	"""A UnicodeStructure with a .uri property"""
 	def __repr__(self):
 		return u'Link(\'%s\',uri=%r)' % (unicode.__repr__(self),self.uri)
 
@@ -50,10 +52,17 @@ class NodeTree:
 		else:
 			raise AttributeError
 
+class ParseError(Exception):
+	def __init__(self, value):
+		self.value = value
+	def __str__(self):
+		return repr(self.value)
+
 class Reference:
-	LAGRUM = 1
-	KORTALAGRUM = 2
-	FORESKRIFTER = 3
+	LAGRUM 			= 1
+	KORTALAGRUM 	= 2
+	FORESKRIFTER 	= 3
+	FORARBETEN 		= 6
 
 	reUriSegments 		= re.compile(r'([\w]+://[^/]+/[^\d]*)(\d+:(bih\.[_ ]|N|)?\d+([_ ]s\.\d+|))#?(K([a-z0-9]+)|)(P([a-z0-9]+)|)(S(\d+)|)(N(\d+)|)')
 	reEscapeCompound 	= re.compile(r'\b(\w+-) (och) (\w+-?)(lagen|förordningen)\b', re.UNICODE)
@@ -72,7 +81,7 @@ class Reference:
 
 		self.roots = []
 		self.uriFormatter = {}
-		self.declare = ''
+		self.decl = ''
 		self.namedLaws = {}
 		self.loadEbnf(scriptDir + '/etc/base.ebnf')
 		self.args = args
@@ -89,9 +98,18 @@ class Reference:
 			# TODO: Fix korta lagrum also
 			pass
 
-		self.declare += 'root ::= (%s/plain)+\n' % '/'.join(self.roots)
-		self.parser = Parser(self.declare, 'root')
+		if self.FORARBETEN in args:
+			prods = self.loadEbnf(scriptDir + '/etc/forarbeten.ebnf')
+			for p in prods:
+				self.uriFormatter[p] = self.forarbeteFormatUri
+			self.roots.append('forarbeteref')
+
+		self.decl += 'root ::= (%s/plain)+\n' % '/'.join(self.roots)
+		self.parser = Parser(self.decl, 'root')
 		self.tagger = self.parser.buildTagger('root')
+		#print "roots ----------",
+		#print self.decl
+		#return
 		self.depth 	= 0
 
 		#SFS specific settings
@@ -106,7 +124,7 @@ class Reference:
 		"""Loads the syntax from a given EBNF file"""
 		f = open(file)
 		syntax = f.read()
-		self.declare += syntax
+		self.decl += syntax
 		f.close()
 		return [x.group(1) for x in re.finditer(r'(\w+(Ref|RefID))\s*::=', syntax)]
 
@@ -288,7 +306,7 @@ class Reference:
 		return sfsId
 
 	def sfsFormatUri(self, attrs):
-		numMap = {u'första'	:'1',
+		pieceMap = {u'första'	:'1',
 				  u'andra'	:'2',
 				  u'tredje'	:'3',
 				  u'fjärde'	:'4',
@@ -303,9 +321,11 @@ class Reference:
 				  u'section':'P',
 				  u'piece'	:'S',
 				  u'item'	:'N',
-				  u'element':'O'}
+				  u'itemnumeric': 'N',
+				  u'element':'O',
+				  u'sentence': 'M'}
 		
-		attrOrder = ['law', 'lawref', 'chapter', 'section', 'element', 'piece', 'item']
+		attrOrder = ['law', 'lawref', 'chapter', 'section', 'element', 'piece', 'item', 'itemnumeric', 'sentence']
 
 		if 'law' in attrs:
 			if attrs['law'].startswith('http://'):
@@ -355,3 +375,24 @@ class Reference:
 				if key == 'piece':
 					justInCase = 'S1'
 		return res								
+
+	def forarbeteFormatUri(self, attrs):
+		res = 'http://rinfo.lagrummet.se/'
+		resolveBase = True
+		addFragment = False
+
+		for key, val in attrs.items():
+			if key == 'prop':
+				res += 'publ/prop/%s' % val
+			elif key == 'bet':
+				res += 'ext/bet/%s' % val
+			elif key == 'skrivelse':
+				res += 'ext/rskr/%s' % val
+			elif key == 'celex':
+				if len(val) == 8:
+					val = val[0] + '19' + val[1:]
+				res += 'ext/celex/%s' % val
+		if 'sidnr' in attrs:
+			res += '#s%s' % attrs['sidnr']
+
+		return res
