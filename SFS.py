@@ -438,7 +438,7 @@ class SFSParser(Source.Parser):
 	# 	2. Finds linkable objects that have their own URIs (kapitel, paragrafer, etc..)
 	# 	3. Finds 'lagrumshänvisningar' in the text
 	def _constructIds(self, element, prefix, baseUri, skipFrags=[], findDefs=False):
-
+		print findDefs
 		findDefsRecursive = findDefs
 		counters = defaultdict(int)
 		if isinstance(element, CompoundStructure):
@@ -450,7 +450,10 @@ class SFSParser(Source.Parser):
 				   	self.reBrottsDefAlt(element[0][0])):
 					findDefs = 'brottsrubricering'
 				if self.reParantesDef(element[0][0]):
+					findDefs = 'parentes'
+				if self.reLoptextDef(element[0][0]):
 					findDefs = 'loptext'
+				
 				findDefsRecursive = findDefs
 
 			# Step 1 + 3
@@ -462,6 +465,7 @@ class SFSParser(Source.Parser):
 
 				if findDefs:
 					elementText = element[0]
+
 					termDelimiter = ':'
 
 					if isinstance(element, TabellCell):
@@ -514,6 +518,7 @@ class SFSParser(Source.Parser):
 						term = Util.normalizedSpace(term)
 						termNode = LinkSubject(term, uri=self._termToSubject(term), predicate='dct:subject')
 						findDefsRecursive = False
+						print termNode
 					else:
 						term = None
 
@@ -1517,7 +1522,44 @@ class SFSController(Source.Controller):
 	def ParseAll(self):
 		dlDir = os.path.sep.join([self.baseDir, u'sfs', 'dl', 'sfst'])
 		self._runMethod(dlDir, 'html', self.Parse)
+	
+	def _generateAnnotations(self, annoFile, f):
+		p = Reference(Reference.LAGRUM)
 		
+		sfsnr 	= FilenameToSfsNr(f)
+		baseUri = p.parse(sfsnr)[0].uri
+		content = {}
+
+		# TODO: 
+
+		# 1. Add link to rattsfall
+		# 2. Add law sections that has a dct:ref that matches
+		# 3. Add change entries for each section
+
+	def Generate(self, f):
+		f = f.replace(':', '/')
+		infile = Util.relpath(self._xmlName(f))
+		outfile = Util.relpath(self._htmlName(f))
+
+		annotations = '%s/%s/intermediate/%s.ann.xml' % (self.baseDir, self.moduleDir, f)
+		dependencies = self._loadDepends(f)
+
+		if self._fileUpToDate(dependencies, annotations):
+			pass
+		else:
+			#self.generateAnno(annotations, f)
+			pass
+
+		Util.mkdir(os.path.dirname(outfile))
+		#params = {'annotationfile':'../data/sfs/intermediate/%s.ann.xml' % f}
+		params = {}
+		Util.transform(__scripDir__ + '/xsl/sfs.xsl',
+					   infile,
+					   outfile,
+					   parameters= params,
+					   validate=False)
+		return
+
 	## Methods that overrides Controller methods ##
 
 	def _get_module_dir(self):
