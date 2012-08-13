@@ -6,6 +6,7 @@
 import os
 import sys
 import re
+from tempfile import mktemp
 
 #3rd party libs
 from configobj import ConfigObj
@@ -86,13 +87,24 @@ class Controller(object):
 		self.baseDir = os.path.dirname(__file__)+os.path.sep+self.config['datadir']
 
 	## Controller Interface def. Subclasses must implement these ##
-	
+	def Parse(self, f):
+		raise NotImplementedError
+
 	def ParseAll(self):
 		"""Parse all the legal documents that we have downloaded"""
 		#TODO: Fixme
 		dlDir = os.path.sep.join([self.baseDir, self.moduleDir, u'dl'])
 		self._runMethod(dlDir, 'html', self.Parse)
 	
+	def Generate(self, f):
+		"""Generate HTML from the parsed files"""
+		raise NotImplementedError
+
+	def GenerateAll(self):
+		parsed = os.path.sep.join([self.baseDir, self.moduleDir, u'parsed'])
+		self._runMethod(parsed, '.xht2', self.Generate)
+
+
 	## Useable functions for subclasses, can be overriden ##
 
 	def _trimFileName(self, files):
@@ -119,7 +131,7 @@ class Controller(object):
 			return False
 		for i in infiles:
 			#TODO: Add lib for timeing!
-			if os.path.exsits(i) and os.stat(i).st_mtime > os.stat(outfile).st_mtime:
+			if os.path.exists(i) and os.stat(i).st_mtime > os.stat(outfile).st_mtime:
 				return False
 		return True
 
@@ -134,3 +146,14 @@ class Controller(object):
 		if not isinstance(f, unicode):
 			raise Exception("WARNING: _xmlName called with non unicode name")
 		return u'%s/%s/parsed/%s.xht2' % (self.baseDir, self.moduleDir, f)
+
+	def _dependName(self, f):
+		return u'%s/%s/intermediate/%s.deps' % (self.baseDir, self.moduleDir, f)
+
+	def _loadDepends(self, f):
+		dependFile = self._dependName(f)
+		depends = []
+		if os.path.exists(dependFile):
+			for dep in codecs.open(dependFile, encoding='utf-8'):
+				depends.append(dep.strip())
+		return depends

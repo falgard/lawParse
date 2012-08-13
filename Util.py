@@ -4,9 +4,13 @@
 
 #Libs
 import os
+import sys
 import codecs
+import subprocess
 import shutil
+import locale
 import filecmp
+from tempfile import mktemp
 
 #3rd party libs
 import BeautifulSoup
@@ -22,6 +26,18 @@ ns = {'dc':'http://purl.org/dc/elements/1.1/',
       'eurlex':'http://lagen.nu/eurlex#',
       'xsd':'http://www.w3.org/2001/XMLSchema#',
       'xht2':'http://www.w3.org/2002/06/xhtml2/'}
+
+class TransformError(Exception):
+	def __init__(self, value):
+		self.value = value
+	def __str__(self):
+		return repr(self.value)
+
+class ValidationError(Exception):
+	def __init__(self, value):
+		self.value = value
+	def __str__(self):
+		return repr(self.value)
 
 def mkdir(dirname):
 	"""mkdir used when creating intermediate and parsed dirs for storage""" 
@@ -105,6 +121,70 @@ def elementText(element):
 		[e for e in element.recursiveChildGenerator() 
 		if (isinstance(e,unicode) and 
 			not isinstance(e, BeautifulSoup.Comment))]))
+
+def transform(stylesheet, infile, outfile, parameters={}, validate=True, xinclude=False, keepUnchanged=False):
+	"""Performs a XSLT transformation with the stylesheet and formats the resulting HTML tree and validates is"""
+
+	# TODO: Not in use until annotations is implemented
+	paramStr = ''
+	for p in parameters.keys():
+		paramStr += "--param %s \"'%s'\" " % (p.parameters[p])
+	# TODO: Not in use until annotations is implemented
+
+	if xinclude:
+		tmpFile = mktemp()
+		cmdLine = "xmllint --xinclude --encode utf-8 %s > %s" % (infile, tmpFile)
+
+		(ret, stdout, stderr) = runCmd(cmdLine)
+		infile = tmpFile
+
+	if ' ' in infile:
+		infile ='"%s"' % infile
+	tmpFile = mktemp()
+	cmdLine = "xsltproc %s %s %s > %s" % (paramStr, stylesheet, infile, tmpFile)
+
+	(ret, stdout, stderr) = runCmd(cmdLine)
+
+	if (ret != 0):
+		raise TransformError(stderr)
+	if stderr:
+		print 'Transformation error: %s' % stderr
+
+	if keepUnchanged:
+		replaceUpdated(tmpFile, outfile)
+	else:
+		forceRename(tmpFile, outfile)
+
+	if os.path.exists(tmpFile):
+		os.unlink(tmpFile)
+	if xinclude:
+		os.unlink(infile)
+	if validate:
+		cmdLine = "xmllint --noout --nonet --nowarning --dtdvalid %s/dtd/xhtml1-strict.dtd %s" (basepath, outfile)
+		(ret, stdout, stderr) = runCmd(cmdLine)
+		if (ret != 0):
+			raise ValidationError(stderr)
+
+def runCmd(cmdLine):
+	if isinstance(cmdLine, unicode):
+		coding = 'utf-8' if sys.stdin.encoding == 'UTF-8' else 'iso-8859-1'
+		cmdLine = cmdLine.encode(coding)
+
+	p = subprocess.Popen(cmdLine, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+	(stdout, stderr) = p.communicate()
+	ret = p.returncode
+
+	if sys.stdout.encoding:
+		enc = sys.stdout.encoding
+	else:
+		enc = locale.getpreferredencoding()
+
+	if isinstance(stdout, str):
+		stdout = stdout.decode(enc)
+	if isinstance(stderr, str):
+		stderr = stderr.decode(enc)
+
+	return (p.returncode, stdout, stderr)
 
 def normalizedSpace(string):
 	return u' '.join(string.split())

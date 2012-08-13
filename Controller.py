@@ -78,7 +78,10 @@ class Controller:
 		return
 
 	def ParseAll(self, sourceType='all'):
-		self._action('ParseAll', sourceType) 
+		self._action('ParseAll', sourceType)
+
+	def GenerateAll(self, module='all'):
+		self._action('GenerateAll', module)
 
 if __name__ == "__main__":
 	Controller.__bases__ += (Dispatcher, )
