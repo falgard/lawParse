@@ -153,6 +153,7 @@ class Reference:
 		else:
 			self.baseUriAttrs = {}
 
+
 		fixedIndata = unicode(indata)
 		
 		if self.LAGRUM in self.args:
@@ -164,7 +165,6 @@ class Reference:
 
 		tagList = tag(fixedIndata, self.tagger,0,len(fixedIndata))
 		res = []
-
 		root = NodeTree(tagList, fixedIndata)
 		for n in root.nodes:
 			if n.tag in self.roots:
@@ -181,9 +181,10 @@ class Reference:
 		if tagList[-1] != len(fixedIndata):
 			#TODO: Add Error 
 			raise ParseError, 'Parsed %s chars of %s (...%s...)' % (tagList[-1], len(indata), indata[(tagList[-1]-2):tagList[-1]+3])
-		
+
 		# Normalize the result, concat and remove '|'
 		result = []
+		
 		for i in range(len(res)):
 			if not self.reDescapeNamed.search(res[i]):
 				node = res[i]
@@ -248,10 +249,21 @@ class Reference:
 
 		return d
 
+	def findNode(self, root, nodeTag):
+		"""Returns the first node in the tree that has a matching tag, dfs."""
+		if root.tag == nodeTag:
+			return root
+		else:
+			for node in root.nodes:
+				x = self.findNode(node, nodeTag)
+				if x != None:
+					return x
+			return None
+
 	def formatterDispatch(self, part):
 		self.depth += 1
-		if 'format' + part.tag in dir(self):
-			formatter = getattr(self,'format'+part.tag)
+		if 'format_' + part.tag in dir(self):
+			formatter = getattr(self,'format_'+part.tag)
 			res = formatter(part)
 			assert res != None, 'Custom formatter for %s didnt return anythin' % part.tag
 		else:
@@ -304,6 +316,120 @@ class Reference:
 	def normalizeSfsId(self, sfsId):
 		sfsId = re.sub(r'(\d+:\d+)\.(\d)', r'\1 \2', sfsId)
 		return sfsId
+
+	def normalizeLawName(self, lawName):
+		lawName = lawName.replace('|','').replace('_',' ').lower()
+		if lawName.endswith('s'):
+			lawName = lawName[:-1]
+		return lawName
+
+	def namedLawToSfsid(self, text, normalize=True):
+		if normalize:
+			text = self.normalizeLawName(text)
+
+		noLaw = [
+			u'aktieslagen',
+			u'anordningen',
+			u'anordningen',
+			u'anslagen',
+			u'arbetsordningen',
+			u'associationsformen',
+			u'avfallsslagen',
+			u'avslagen',
+			u'avvittringsutslagen',
+			u'bergslagen',
+			u'beskattningsunderlagen',
+			u'bolagen',
+			u'bolagsordningen',
+			u'bolagsordningen',
+			u'dagordningen',
+			u'djurslagen',
+			u'dotterbolagen',
+			u'emballagen',
+			u'energislagen',
+			u'ersättningsformen',
+			u'ersättningsslagen',
+			u'examensordningen',
+			u'finansbolagen',
+			u'finansieringsformen',
+			u'fissionsvederlagen',
+			u'flygbolagen',
+			u'fondbolagen',
+			u'förbundsordningen',
+			u'föreslagen',
+			u'företrädesordningen',
+			u'förhandlingsordningen',
+			u'förlagen',
+			u'förmånsrättsordningen',
+			u'förmögenhetsordningen',
+			u'förordningen',
+			u'förslagen',
+			u'försäkringsaktiebolagen',
+			u'försäkringsbolagen',
+			u'gravanordningen',
+			u'grundlagen',
+			u'handelsplattformen',
+			u'handläggningsordningen',
+			u'inkomstslagen',
+			u'inköpssamordningen',
+			u'kapitalunderlagen',
+			u'klockslagen',
+			u'kopplingsanordningen',
+			u'låneformen',
+			u'mervärdesskatteordningen',
+			u'nummerordningen',
+			u'omslagen',
+			u'ordalagen',
+			u'pensionsordningen',
+			u'renhållningsordningen',
+			u'representationsreformen',
+			u'rättegångordningen',
+			u'rättegångsordningen',
+			u'rättsordningen',
+			u'samordningen',
+			u'samordningen',
+			u'skatteordningen',
+			u'skatteslagen',
+			u'skatteunderlagen',
+			u'skolformen',
+			u'skyddsanordningen',
+			u'slagen',
+			u'solvärmeanordningen',
+			u'storslagen',
+			u'studieformen',
+			u'stödformen',
+			u'stödordningen',
+			u'stödordningen',
+			u'säkerhetsanordningen',
+			u'talarordningen',
+			u'tillslagen',
+			u'tivolianordningen',
+			u'trafikslagen',
+			u'transportanordningen',
+			u'transportslagen',
+			u'trädslagen',
+			u'turordningen',
+			u'underlagen',
+			u'uniformen',
+			u'uppställningsformen',
+			u'utvecklingsbolagen',
+			u'varuslagen',
+			u'verksamhetsformen',
+			u'vevanordningen',
+			u'vårdformen',
+			u'ägoanordningen',
+			u'ägoslagen',
+			u'ärendeslagen',
+			u'åtgärdsförslagen']
+			
+		if text in noLaw:
+			return None
+		if self.currentNamedLaws.has_key(text):
+			return self.currentNamedLaws[text]
+		elif self.namedLaws.has_key(text):
+			return self.namedLaws[text]
+		else:
+			return None
 
 	def sfsFormatUri(self, attrs):
 		pieceMap = {u'första'	:'1',
@@ -376,6 +502,47 @@ class Reference:
 					justInCase = 'S1'
 		return res								
 
+	def format_sfsref(self, root):
+		if self.baseUri == None:
+			sfsId = self.findNode(root, 'LawRefID').data
+			self.baseUriAttrs = {'baseUri':'http://rinfo.lagrummet.se/publ/sfs/'+sfsId+'#'}
+		return self.formatTokentree(root)
+
+	def format_NamedExternalLawRef(self, root):
+		resetCurrentLaw = False
+		if self.currentLaw == None:
+			resetCurrentLaw = True
+			lawRefIdNode = self.findNode(root, 'LawRefID')
+			if lawRefIdNode == None:
+				self.currentLaw = self.namedLawToSfsid(root.text)
+			else:
+				self.currentLaw = lawRefIdNode.text
+				namedLaw = self.normalizeLawName(self.findNode(root, 'NamedLaw').text)
+				self.currentNamedLaws[namedLaw] = self.currentLaw
+
+		if self.currentLaw == None:
+			res = [root.text]
+		else:
+			res = [self.formatGenericLink(root)]
+
+		if self.baseUri == None and self.currentLaw != None:
+			m = self.reUriSegments.match(self.currentLaw)
+			if m:
+				self.baseUriAttrs = {'baseUri' : m.group(1),
+									 'law': m.group(2),
+									 'chapter': m.group(6),
+									 'section': m.group(8),
+									 'piece': m.group(10),
+									 'item': m.group(12)} 
+			else:
+				self.baseUriAttrs = {'baseUri': 'http://rinfo.lagrummet.se/publ/sfs/' + self.currentLaw + '#'}
+		if resetCurrentLaw:
+			if self.currentLaw != None:
+				self.lastLaw = self.currentLaw
+			self.currentLaw = None
+
+		return res
+	
 	def forarbeteFormatUri(self, attrs):
 		res = 'http://rinfo.lagrummet.se/'
 		resolveBase = True

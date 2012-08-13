@@ -438,7 +438,6 @@ class SFSParser(Source.Parser):
 	# 	2. Finds linkable objects that have their own URIs (kapitel, paragrafer, etc..)
 	# 	3. Finds 'lagrumshänvisningar' in the text
 	def _constructIds(self, element, prefix, baseUri, skipFrags=[], findDefs=False):
-		print findDefs
 		findDefsRecursive = findDefs
 		counters = defaultdict(int)
 		if isinstance(element, CompoundStructure):
@@ -471,6 +470,7 @@ class SFSParser(Source.Parser):
 					if isinstance(element, TabellCell):
 						if elementText != 'Beteckning':
 							term = elementText
+
 					elif isinstance(element, Stycke):
 						# There's some special cases when ':' is not
 						# the delimiter, ex: "antisladdsystem: ett tekniskt.."
@@ -506,6 +506,7 @@ class SFSParser(Source.Parser):
 						m = self.reLoptextDef(elementText)
 						if m:
 							term = m.group(1)
+
 					elif isinstance(element, Listelement):
 						for rx in (self.reBullet,
 								   self.reDottedNumber,
@@ -518,7 +519,6 @@ class SFSParser(Source.Parser):
 						term = Util.normalizedSpace(term)
 						termNode = LinkSubject(term, uri=self._termToSubject(term), predicate='dct:subject')
 						findDefsRecursive = False
-						print termNode
 					else:
 						term = None
 
@@ -528,6 +528,7 @@ class SFSParser(Source.Parser):
 						s = s.replace(u'\x96', '-')
 						# Make all links have a dct:references
 						# predicate, needed to get useful RDF triples
+						
 						parsedNodes = self.lagrumParser.parse(s, baseUri+prefix, 'dct:references')
 
 						for n in parsedNodes:
