@@ -186,6 +186,26 @@ class SFSParser(Source.Parser):
 	# Use this to ensure that strings converted to roman numerals are legal
 	reRomanNumMatcher = re.compile('^M?M?M?(CM|CD|D?C?C?C?)(XC|XL|L?X?X?X?)(IX|IV|V?I?I?I?)$').match
 
+	romanMap = (('M', 	1000),
+				('CM', 	900),
+				('D', 	500),
+				('CD', 	400),
+				('C', 	100),
+				('XC', 	90),
+				('L', 	50),
+				('XL', 	40),
+				('X', 	10),
+				('IX', 	9),
+				('V', 	5),
+				('IV', 	4),
+				('I', 	1))
+
+	sweOrdMap = (u'första', u'andra', u'tredje', u'fjärde',
+				   u'femte', u'sjätte', u'sjunde', u'åttonde',
+				   u'nionde', u'tionde', u'elfte', u'tolfte',)
+
+	sweOrdDict = dict(zip(sweOrdMap, range(1, len(sweOrdMap) + 1 )))
+
 	def __init__(self):
 		self.lagrumParser = Reference(Reference.LAGRUM)
 		self.forarbeteParser = Reference(Reference.FORARBETEN)
@@ -579,6 +599,23 @@ class SFSParser(Source.Parser):
 						counters[s] += subCounters[s]
 		return counters
 
+	def _fromRoman(self, s):
+		"""Convert Roman to int"""
+		res = 0
+		idx = 0
+		for numeral,integer in self.romanMap:
+			while s[idx:idx+len(numeral)] == numeral:
+				res += integer
+				idx += len(numeral)
+
+		return res
+
+	def _sweOrdinal(self, s):
+		sl = s.lower()
+		if sl in self.sweOrdDict:
+			return self.sweOrdDict[sl]
+		return None
+
 	def _parseSFST(self, txtFile, registry):
 		self.reader = TextReader(txtFile, encoding='iso-8859-1', linesep=TextReader.DOS)
 		self.reader.autostrip = True
@@ -685,7 +722,7 @@ class SFSParser(Source.Parser):
 
 	def makeAvdelning(self):
 		avdNr = self.idOfAvdelning()
-		p.Avdelning(rubrik=self.reader.readLine(),
+		p = Avdelning(rubrik=self.reader.readLine(),
 					ordinal=avdNr,
 					underrubrik=None)
 		if (self.reader.peekLine(1) == '' and 
@@ -1167,7 +1204,7 @@ class SFSParser(Source.Parser):
 		p = self.reader.peekLine()
 		if p.lower().endswith(u'avdelningen') and len(p.split()) == 2:
 			ordinal = p.split()[0]
-			return unicode(self._sweOrdinal(ordinal))
+			return unicode(self._sweOrd(ordinal))
 		elif p.startswith(u'AVD. ') or p.startswith(u'AVDELNING '):
 			roman = re.split(r'\s+',p)[1]
 			if roman.endswith('.'):

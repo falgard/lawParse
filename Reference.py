@@ -572,13 +572,19 @@ class Reference:
 		return res
 
 	def format_ChapterSectionRef(self, root):
-		print "TODO: Implement me %s" % root.tag 
-	
-	def format_ChapterSectionRef(self, root):
-		print "TODO: Implement me %s" % root.tag 
+		assert(root.nodes[0].nodes[0].tag == 'ChapterRefID')
+		self.currentChapter = root.nodes[0].nodes[0].text.strip()
+
+		return [self.formatGenericLink(root)]
 
 	def format_ChapterSectionPieceRefs(self, root):
-		print "TODO: Implement me %s" % root.tag 
+		assert(root.nodes[0].nodes[0].tag == 'ChapterRefID')
+		self.currentChapter = root.nodes[0].nodes[0].text.strip()
+		res = []
+		for node in root.nodes:
+			res.extend(self.formatterDispatch(node))
+
+		return res 
 
 	def format_AlternativeChapterSectionRefs(self, root):
 		print "TODO: Implement me %s" % root.tag 
@@ -594,19 +600,55 @@ class Reference:
 		return [self.formatGenericLink(root)]
 
 	def format_SectionPieceRefs(self, root):
-		print "TODO: Implement me %s" % root.tag 
+		assert(root.tag == 'SectionPieceRefs')
+		self.currentSection = root.nodes[0].nodes[0].text.strip()
+		res = [self.formatCustomLink(self.findAttrs([root.nodes[2]]),
+									 '%s %s' % (root.nodes[0].text, root.nodes[2].text),
+									 root.tag)]
+		for node in root.nodes[3:]:
+			res.extend(self.formatterDispatch(node))
+		self.currentSection = None
+
+		return res
 
 	def format_SectionPieceItemRefs(self, root):
-		print "TODO: Implement me %s" % root.tag 		
+		assert(root.tag == 'SectionPieceItemRefs')
+		self.currentSection = root.nodes[0].nodes[0].text.strip()
+		self.currentPiece = root.nodes[2].nodes[0].text.strip()
+
+		res = [self.formatCustomLink(self.findAttrs([root.nodes[2]]),
+									 '%s %s' % (root.nodes[0].text, root.nodes[2].text),
+									 root.tag)]
+		for node in root.nodes[3:]:
+			res.extend(self.formatterDispatch(node))
+
+		self.currentSection = None
+		self.currentPiece = None
+
+		return res
 
 	def format_SectionItemRefs(self, root):
-		print "TODO: Implement me %s" % root.tag 
+		assert(root.nodes[0].nodes[0].tag == 'SectionRefID')
+		self.currentSection = root.nodes[0].nodes[0].text.strip()
+		res = self.formatTokentree(root)
+		self.currentSection = None
+		
+		return res
 
 	def format_PieceItemRefs(self, root):
-		print "TODO: Implement me %s" % root.tag 
+		self.currentPiece = root.nodes[0].nodes[0].text.strip()
+		res = [self.formatCustomLink(self.findAttrs([root.nodes[2].nodes[0]]),
+													'%s %s' % (root.nodes[0].text, root.nodes[2].nodes[0].text),
+													root.tag)]
+		for node in root.nodes[2].nodes[1:]:
+			res.extend(self.formatterDispatch(node))
+		self.currentPiece = None
+
+		return res
 
 	def format_ExternalLaw(self, root):
-		print "TODO: Implement me %s" % root.tag 
+		self.currentChapter = None
+		return self.formatterDispatch(root.nodes[0])
 
 	def format_ExternalRefs(self, root):
 		# Special case for things like '17-29 och 32 §§ i lagen
