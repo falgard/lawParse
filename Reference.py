@@ -107,9 +107,6 @@ class Reference:
 		self.decl += 'root ::= (%s/plain)+\n' % '/'.join(self.roots)
 		self.parser = Parser(self.decl, 'root')
 		self.tagger = self.parser.buildTagger('root')
-		#print "roots ----------",
-		#print self.decl
-		#return
 		self.depth 	= 0
 
 		#SFS specific settings
@@ -307,6 +304,18 @@ class Reference:
 		else:
 			return Link(part.text, uri=uri)
 
+	def formatCustomLink(self, attrs, text, production):
+		try:
+			uri = self.uriFormatter[production](attrs)
+		except KeyError:
+			uri = self.sfsFormatUri(attrs)
+
+		if not uri:
+			return part.text
+		elif self.predicate:
+			return LinkSubject(text, uri=uri, predicate=self.predicate)
+		else:
+			return Link(text, uri=uri)
 	def clearState(self):
 		self.currentLaw 	= None
 		self.currentChapter	= None
@@ -507,6 +516,12 @@ class Reference:
 			sfsId = self.findNode(root, 'LawRefID').data
 			self.baseUriAttrs = {'baseUri':'http://rinfo.lagrummet.se/publ/sfs/'+sfsId+'#'}
 		return self.formatTokentree(root)
+
+	def format_ChangeRef(self, root):
+		id = self.findNode(root, 'LawRefID').data
+		return [self.formatCustomLink({'lawref':id},
+									   root.text,
+									   root.tag)]
 
 	def format_NamedExternalLawRef(self, root):
 		resetCurrentLaw = False

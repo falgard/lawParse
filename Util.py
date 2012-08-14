@@ -74,6 +74,20 @@ def relpath(path, start=os.curdir):
 		return curdir
 	return os.path.sep.join(relList)
 
+def splitNumAlpha(s):
+	res = []
+	seg = ''
+	digit = s[0].isdigit()
+	for c in s:
+		if (c.isdigit() and digit) or (not c.isdigit() and not digit):
+			seg += c
+		else:
+			res.append(int(seg) if seg.isdigit() else seg)
+			seg = c
+			digit = not digit
+	res.append(int(seg) if seg.isdigit() else seg)
+	return res		
+
 def listDirs(d,suffix=None,reverse=False):
 	"""A generator that works like os.listdir recursively and returns files instead of dirs."""
 	if isinstance(d, str):

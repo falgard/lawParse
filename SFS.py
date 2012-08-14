@@ -1235,7 +1235,7 @@ class SFSParser(Source.Parser):
 		else:
 			indirect = True
 
-		if len(p) > 0 and p[0].lower() == p[0] and not p.startswith('/Ruriken'):
+		if len(p) > 0 and p[0].lower() == p[0] and not p.startswith('/Rubriken'):
 			return False
 		if len(p) > 110:
 			return False
@@ -1293,7 +1293,7 @@ class SFSParser(Source.Parser):
 
 		# If the section id is < than the last section id 
 		# the section is probably a reference and not a new section
-		if cmp(paragrafNr, self.currentSection) < 0:
+		if (cmp(Util.splitNumAlpha(paragrafNr), Util.splitNumAlpha(self.currentSection)) < 0):
 			#TODO: Does this cmp work?
 			return False
 		# Special case, if the first char in the paragraph 
