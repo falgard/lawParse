@@ -257,12 +257,25 @@ class Reference:
 					return x
 			return None
 
+	def findNodes(self, root, nodeTag):
+		if root.tag == nodeTag:
+			return [root]
+		else:
+			res = []
+			for node in root.nodes:
+				res.extend(self.findNodes(node, nodeTag))
+			return res
+
 	def formatterDispatch(self, part):
 		self.depth += 1
 		if 'format_' + part.tag in dir(self):
 			formatter = getattr(self,'format_'+part.tag)
-			res = formatter(part)
-			assert res != None, 'Custom formatter for %s didnt return anythin' % part.tag
+			resTmp = formatter(part)
+			if resTmp:
+				res = resTmp
+				assert res != None, 'Custom formatter for %s didnt return anythin' % part.tag
+			else:
+				res = self.formatTokentree(part)	
 		else:
 			res = self.formatTokentree(part)
 
@@ -511,7 +524,7 @@ class Reference:
 					justInCase = 'S1'
 		return res								
 
-	def format_sfsref(self, root):
+	def format_SFSNr(self, root):
 		if self.baseUri == None:
 			sfsId = self.findNode(root, 'LawRefID').data
 			self.baseUriAttrs = {'baseUri':'http://rinfo.lagrummet.se/publ/sfs/'+sfsId+'#'}
@@ -557,7 +570,80 @@ class Reference:
 			self.currentLaw = None
 
 		return res
+
+	def format_ChapterSectionRef(self, root):
+		print "TODO: Implement me %s" % root.tag 
 	
+	def format_ChapterSectionRef(self, root):
+		print "TODO: Implement me %s" % root.tag 
+
+	def format_ChapterSectionPieceRefs(self, root):
+		print "TODO: Implement me %s" % root.tag 
+
+	def format_AlternativeChapterSectionRefs(self, root):
+		print "TODO: Implement me %s" % root.tag 
+
+	def format_LastSectionRef(self, root):
+		# We want the ending double section mark to be 
+		# a part of the link
+		assert(root.tag == 'LastSectionRef')
+		assert(len(root.nodes) == 3)
+		sectionRefId = root.nodes[0]
+		sectionId = sectionRefId.text
+
+		return [self.formatGenericLink(root)]
+
+	def format_SectionPieceRefs(self, root):
+		print "TODO: Implement me %s" % root.tag 
+
+	def format_SectionPieceItemRefs(self, root):
+		print "TODO: Implement me %s" % root.tag 		
+
+	def format_SectionItemRefs(self, root):
+		print "TODO: Implement me %s" % root.tag 
+
+	def format_PieceItemRefs(self, root):
+		print "TODO: Implement me %s" % root.tag 
+
+	def format_ExternalLaw(self, root):
+		print "TODO: Implement me %s" % root.tag 
+
+	def format_ExternalRefs(self, root):
+		# Special case for things like '17-29 och 32 §§ i lagen
+		# (2004:575)' by picking the LawRefID and store it in 
+		# currentLaw do findAttrs will find it.  
+		assert(root.tag == 'ExternalRefs')
+
+		lawRefIdNode = self.findNode(root, 'LawRefID')
+		if lawRefIdNode == None:
+			namedLawNode = self.findNode(root, 'NamedLaw')
+			if namedLawNode == None:
+				sameLawNode = self.findNode(root, 'SameLaw')
+				assert(sameLawNode != None)
+				self.currentLaw = self.lastLaw
+			else:
+				self.currentLaw = self.namedLawToSfsid(namedLawNode.text)
+				if self.currentLaw == None:
+					# Unknown law name, return
+					return [root.text]
+		else:
+			self.currentLaw = lawRefIdNode.text
+			if self.findNode(root, 'NamedLaw'):
+				namedLaw = self.normalizeLawName(self.findNode(root, 'NamedLaw').text)
+				self.currentNamedLaws[namedLaw] = self.currentLaw
+
+		if self.lastLaw is None:
+			self.lastLaw = self.currentLaw
+
+		if (len(self.findNodes(root, 'GenericRefs')) == 1 and 
+			len(self.findNodes(root, 'SectionRefID')) == 1 and
+			len(self.findNodes(root, 'AnonymousExternalLaw')) == 0):
+			res = [self.formatGenericLink(root)]
+		else:
+			res = self.formatTokentree(root)
+
+		return res
+
 	def forarbeteFormatUri(self, attrs):
 		res = 'http://rinfo.lagrummet.se/'
 		resolveBase = True
