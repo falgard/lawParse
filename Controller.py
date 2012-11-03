@@ -6,13 +6,11 @@
 
 #Libs
 import os,sys
+import getopt
 import inspect
 
-#3rd party libs
-from configobj import ConfigObj
-
 #Own libs 
-from Dispatcher import Dispatcher
+import config
 import Source
 
 __scriptDir__ = os.getcwd()
@@ -20,8 +18,11 @@ __scriptDir__ = os.getcwd()
 class Controller:
 
 	def __init__(self):
-		self.config = ConfigObj(__scriptDir__+"/conf.ini")
-		self.baseDir = __scriptDir__+os.path.sep+self.config['datadir']
+		self.baseDir = __scriptDir__+os.path.sep+config.datadir
+
+		if config.debug:
+			print "## Create Controller"
+			print "Basedir: ", self.baseDir
 
 	def _createDict(self, classList):
 		d = {}
@@ -49,9 +50,7 @@ class Controller:
 				#print clsMembers[c]
 				return clsMembers[c]
 
-	def _action(self,action,sourceType):
-		#print "_action"
-		#print sourceType
+	def _action(self, action, sourceType):
 		if sourceType == 'all':
 			#Collect all types of legal sources
 			srcTypes = self._getSrcTypes()
@@ -65,8 +64,17 @@ class Controller:
 			
 			if srcClass:
 				ctrl = srcClass()
+				
+				if config.debug:
+					print "Control: ", ctrl
+					print "Action: ", action
+		
 				if hasattr(ctrl, action):
 					method = getattr(ctrl, action)
+					
+					if config.debug:
+						print "Method: ", method
+					
 					method()
 				else:
 					#TODO: add warning, "no such method"
@@ -78,13 +86,70 @@ class Controller:
 		return
 
 	def ParseAll(self, sourceType='all'):
+		
+		if config.debug:
+			print "## ParseAll in Controller"
+		
 		self._action('ParseAll', sourceType)
 
 	def GenerateAll(self, module='all'):
 		self._action('GenerateAll', module)
 
-if __name__ == "__main__":
-	Controller.__bases__ += (Dispatcher, )
+
+	def _validate(self, argv):
+
+		if config.debug:
+			print "## Validate user arguments"
+
+		coding = 'utf-8' if sys.stdin.encoding == 'UTF-8' else 'iso-8859-1'
+		myArgs = [arg.decode(coding) for arg in argv]
+
+		if len(myArgs) < 1:
+			print "No arguments given"
+			self.__availableArgs() 
+			return
+				
+		action = myArgs[0]
+
+		try:
+			func = getattr(self,action)
+		except AttributeError:
+			self.__availableArgs()
+			sys.exit(2)
+
+		if config.debug:
+			print "Function: ", func
+
+		func()
+
+		return
+
+	def __availableArgs(self):
+		print "Valid arguments are:", ", ".join(
+			[str(m) for m in dir(self) if (not m.startswith("_") 
+										   and callable(getattr(self, m)))]
+	        )
+def usage():
+	print "Usage: pyhton Controller.py [-d | -h] [arg]"
+	print "Available flags are: -d (debug), -h--help (help)"
+
+def main(args):
+	try:                                
+		opts, args = getopt.getopt(args, 'dh', 'help')
+	except getopt.GetoptError:           
+		usage()                          
+		sys.exit(2)
+
+	for opt, arg in opts:                
+		if opt in ("-h", "--help"):      
+			usage()                     
+			sys.exit()                  
+		elif opt == '-d':                         
+			config.debug = 1
+	
 	ctrl = Controller()
-	ctrl.Dispatch(sys.argv)
-	#print "Controller"
+	ctrl._validate(args)
+
+
+if __name__ == "__main__":
+	main(sys.argv[1:])

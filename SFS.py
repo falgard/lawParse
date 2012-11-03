@@ -20,6 +20,7 @@ from rdflib import Namespace, RDFS, RDF, URIRef, Literal
 
 #Own libs
 import Source
+import config
 from Reference import Reference, Link, LinkSubject, ParseError
 import Util
 from Dispatcher import Dispatcher
@@ -221,6 +222,7 @@ class SFSParser(Source.Parser):
 			for file in filelist:
 				if os.path.getmtime(file) < timestamp:
 					timestamp = os.path.getmtime(file)
+		
 		registry = self._parseSFSR(files['sfsr'])
 		
 		#Extract the plaintext and create a intermediate file for storage
@@ -423,7 +425,12 @@ class SFSParser(Source.Parser):
 							#TODO: Log Warning unknown key
 							pass
 				if rp:
+					if config.debug:
+						print "Registerpost: "
+						print rp
 					r.append(rp)
+					
+
 		return r		
 
 	def _extractSFST(self, files=[], head=True):
@@ -437,13 +444,16 @@ class SFSParser(Source.Parser):
 		else:
 			t.cuepast(u'<hr>')
 
+
 		txt = t.readTo(u'</pre>')
 		reEntities = re.compile('&(\w+?);')
 		txt = reEntities.sub(self._descapeEntity, txt)
+
 		if not '\r\n' in txt:
 			txt = txt.replace('\n','\r\n')
 		reTags = re.compile('</?\w{1,3}>')
 		txt = reTags.sub(u'',txt)
+	
 		return txt + self._extractSFST(files[1:], head=False)
 
 	def _descapeEntity(self, m):
@@ -623,7 +633,7 @@ class SFSParser(Source.Parser):
 		meta = self.makeHeader()
 		body = self.makeForfattning()
 		elements = self._countElements(body)
-
+		
 		if 'K' in elements and elements['P1'] < 2:
 			skipFrags = ['A', 'K']
 		else:
@@ -636,6 +646,7 @@ class SFSParser(Source.Parser):
 	def makeHeader(self):
 		subReader = self.reader.getReader(self.reader.readChunk, self.reader.linesep * 4)
 		meta = ForfattningsInfo()
+		
 		for line in subReader.getIterator(subReader.readParagraph):
 			if ':' in line:
 				(key, val) = [Util.normalizedSpace(x) for x in line.split(':',1)]
@@ -696,6 +707,10 @@ class SFSParser(Source.Parser):
 			pass
 			#TODO: Add warning, Rubrik is missing
 
+		if config.debug:
+			print "Result from makeHeader: "
+			print meta
+			
 		return meta
 
 	def makeForfattning(self):
@@ -749,6 +764,7 @@ class SFSParser(Source.Parser):
 		return UpphavtKapitel(self.reader.readLine(), ordinal=kapitelnummer)
 
 	def makeKapitel(self):
+
 		kapitelnummer = self.idOfKapitel()
 		paragraf = self.reader.readParagraph()
 
@@ -783,7 +799,6 @@ class SFSParser(Source.Parser):
 	def makeRubrik(self):
 		paragraf = self.reader.readParagraph()
 		(line, upphor, ikrafttrader) = self.andringsDatum(paragraf)
-
 		kwargs = {}
 		if upphor:
 			kwargs['upphor'] = upphor
@@ -833,6 +848,7 @@ class SFSParser(Source.Parser):
 		
 		stateHandler = self.makeStycke
 		res = self.makeStycke()
+
 		p.append(res)
 
 		while not self.reader.eof():
@@ -1331,7 +1347,6 @@ class SFSParser(Source.Parser):
 		# If the section id is < than the last section id 
 		# the section is probably a reference and not a new section
 		if (cmp(Util.splitNumAlpha(paragrafNr), Util.splitNumAlpha(self.currentSection)) < 0):
-			#TODO: Does this cmp work?
 			return False
 		# Special case, if the first char in the paragraph 
 		# is lower case, then it's not a paragraph
@@ -1499,6 +1514,9 @@ class SFSParser(Source.Parser):
 						 u'Bilaga 6'))
 
 class SFSController(Source.Controller):
+
+	if config.debug:
+		print "## Create SFS Controller"
 	
 	__parserClass = SFSParser
 
@@ -1540,6 +1558,7 @@ class SFSController(Source.Controller):
 					#TODO: log 'expired' document
 			except IOError:
 				pass
+
 			# Actual parsing begins here.
 			p = SFSParser()
 			parsed = p.Parse(f, files)
@@ -1557,10 +1576,15 @@ class SFSController(Source.Controller):
 			Util.remove(filename)
 			Util.remove(Util.relpath(self._htmlName(f)))
 
-	def ParseAll(self):
+	def ParseAll(self):	
 		dlDir = os.path.sep.join([self.baseDir, u'sfs', 'dl', 'sfst'])
+		
+		if config.debug:
+			print "## Run ParseAll in SFS"
+			print "Download dir: ", dlDir
+
 		self._runMethod(dlDir, 'html', self.Parse)
-	
+
 	def _generateAnnotations(self, annoFile, f):
 		p = Reference(Reference.LAGRUM)
 		

@@ -6,10 +6,10 @@
 import os
 import sys
 import re
+import config
 from tempfile import mktemp
 
 #3rd party libs
-from configobj import ConfigObj
 from rdflib import RDFS
 from rdflib.Graph import Graph
 from genshi.template import TemplateLoader
@@ -83,8 +83,7 @@ class Parser(object):
 class Controller(object):
 	def __init__(self):
 		self.moduleDir = self._get_module_dir()
-		self.config = ConfigObj(os.path.dirname(__file__)+"/conf.ini")
-		self.baseDir = os.path.dirname(__file__)+os.path.sep+self.config['datadir']
+		self.baseDir = os.path.dirname(__file__)+os.path.sep+config.datadir
 
 	## Controller Interface def. Subclasses must implement these ##
 	def Parse(self, f):
@@ -120,6 +119,8 @@ class Controller(object):
 	def _runMethod(self, dir, suffix, method):
 		files = self._trimFileName(Util.listDirs(dir, suffix, reverse=True))		
 		for f in files:
+			if config.debug:
+				print "Running file: ", f, " with method: ", method
 			try:
 				method(f)
 			except KeyboardInterrupt:
