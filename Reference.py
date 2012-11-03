@@ -270,12 +270,8 @@ class Reference:
 		self.depth += 1
 		if 'format_' + part.tag in dir(self):
 			formatter = getattr(self,'format_'+part.tag)
-			resTmp = formatter(part)
-			if resTmp:
-				res = resTmp
-				assert res != None, 'Custom formatter for %s didnt return anythin' % part.tag
-			else:
-				res = self.formatTokentree(part)	
+			res = formatter(part)
+			assert res != None, 'Custom formatter for %s didnt return anythin' % part.tag
 		else:
 			res = self.formatTokentree(part)
 
@@ -329,6 +325,7 @@ class Reference:
 			return LinkSubject(text, uri=uri, predicate=self.predicate)
 		else:
 			return Link(text, uri=uri)
+
 	def clearState(self):
 		self.currentLaw 	= None
 		self.currentChapter	= None
@@ -574,7 +571,6 @@ class Reference:
 	def format_ChapterSectionRef(self, root):
 		assert(root.nodes[0].nodes[0].tag == 'ChapterRefID')
 		self.currentChapter = root.nodes[0].nodes[0].text.strip()
-
 		return [self.formatGenericLink(root)]
 
 	def format_ChapterSectionPieceRefs(self, root):
