@@ -137,7 +137,7 @@ def elementText(element):
 			not isinstance(e, BeautifulSoup.Comment))]))
 
 def transform(stylesheet, infile, outfile, parameters={}, validate=True, xinclude=False, keepUnchanged=False):
-	"""Performs a XSLT transformation with the stylesheet and formats the resulting HTML tree and validates is"""
+	"""Performs a XSLT transformation with the stylesheet and formats the resulting HTML tree and validates it"""
 
 	# TODO: Not in use until annotations is implemented
 	paramStr = ''

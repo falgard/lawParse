@@ -223,9 +223,10 @@ class SFSParser(Source.Parser):
 				if os.path.getmtime(file) < timestamp:
 					timestamp = os.path.getmtime(file)
 		
+		# Parse SFSR file
 		registry = self._parseSFSR(files['sfsr'])
 		
-		#Extract the plaintext and create a intermediate file for storage
+		# Extract the plaintext and create a intermediate file for storage
 		try:
 			plaintext = self._extractSFST(files['sfst'])
 			txtFile = files['sfst'][0].replace('.html', '.txt').replace('dl/sfst', 'intermediate')
@@ -236,6 +237,7 @@ class SFSParser(Source.Parser):
 			f.close()
 			Util.replaceUpdated(tmpFile, txtFile)
 			
+			# Parse the SFST file 
 			(meta, body) = self._parseSFST(txtFile, registry)
 			
 			#TODO: Add patch handling? 
@@ -264,6 +266,7 @@ class SFSParser(Source.Parser):
 			s = Stycke([u'(Lagtext saknas)'], **kwargs)
 			body.append(s)
 
+		# Add extra meta info
 		meta[u'Konsolideringsunderlag'] = []
 		meta[u'Förarbeten'] = []
 		for rp in registry:
@@ -275,11 +278,13 @@ class SFSParser(Source.Parser):
 						meta[u'Förarbeten'].append(node.uri)
 		meta[u'Senast hämtad'] = DateSubject(datetime.fromtimestamp(timestamp), predicate='rinfoex:senastHamtad')
 
+		# Fetch abbreviation if existing
 		g = Graph()
 		g.load(__scripDir__+'/etc/sfs-extra.n3', format='n3')
 
 		for obj in g.objects(URIRef(meta[u'xml:base']), DCT['alternate']):
 			meta[u'Förkortning'] = unicode(obj)
+			# print meta[u'Förkortning']
 		
 		obs = None
 		for p in body:
@@ -304,7 +309,12 @@ class SFSParser(Source.Parser):
 					rp[u'SFS-nummer'] = ob.sfsnr
 					rp[u'Övergångsbestämmelse'] = ob
 
-		xhtml = self.generateXhtml(meta, body, registry, __moduledir__,globals())										  					
+		# Generate XHTML file
+		xhtml = self.generateXhtml(meta, body, registry, __moduledir__,globals())
+		if config .debug:
+			print "XHTML: "
+			print " "
+			print xhtml										  					
 		return xhtml
 		
 	#Meta data found in both SFST header and SFST data
@@ -369,7 +379,7 @@ class SFSParser(Source.Parser):
 						elif key == u'Ansvarig myndighet':
 							try: 
 								authRec = self.findAuthRec(val)
-								rp[key] = LinkSubject(val, uri=unicode(authRec[0]),
+								rp[key] = LinkSubject(val, uri=unicode(authRec),
 													  predicate=self.labels[key])
 							except Exception, e:
 								rp[key] = val
@@ -620,7 +630,7 @@ class SFSParser(Source.Parser):
 
 		return res
 
-	def _sweOrdinal(self, s):
+	def _sweOrd(self, s):
 		sl = s.lower()
 		if sl in self.sweOrdDict:
 			return self.sweOrdDict[sl]
@@ -651,7 +661,7 @@ class SFSParser(Source.Parser):
 			if ':' in line:
 				(key, val) = [Util.normalizedSpace(x) for x in line.split(':',1)]
 			if key == u'Rubrik':
-				meta[key] = UnicodeSubject(val, predicate=self.labels[key])
+				meta[key] = UnicodeSubject(val, predicate=self.labels[key])							
 			elif key == u'Övrigt':
 				meta[key] = UnicodeSubject(val, predicate=self.labels[key])
 			elif key == u'SFS nr':
@@ -1530,6 +1540,12 @@ class SFSController(Source.Controller):
 			if (not files['sfst'] and not files['sfsr']):
 				raise Source.NoFiles("No files found for %s" % f)
 			filename = self._xmlName(f)
+
+			if config.debug:
+				print "All files connected to this file: ",
+				print files
+				print "XML filename: ",
+				print filename
 
 			# Three checks before we start to parse
 

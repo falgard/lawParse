@@ -5,3 +5,6 @@ datadir = 'data'
 
 # Debug variabel, turned on by using the -d flag
 debug = 0
+
+# Benchmark log variabel, turned on by using the -l flag
+benchmark = 0

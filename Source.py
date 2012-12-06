@@ -7,6 +7,7 @@ import os
 import sys
 import re
 import config
+import time
 from tempfile import mktemp
 
 #3rd party libs
@@ -118,11 +119,18 @@ class Controller(object):
 
 	def _runMethod(self, dir, suffix, method):
 		files = self._trimFileName(Util.listDirs(dir, suffix, reverse=True))		
+		nrOfFiles = 0
+		currentTime = time.time()
 		for f in files:
 			if config.debug:
-				print "Running file: ", f, " with method: ", method
+				print "Running file: ", f, " with method: ", method		
+			if config.benchmark:
+				nrOfFiles += 1
+				print nrOfFiles,",",f,
 			try:
 				method(f)
+				if config.benchmark:
+					print ",",time.time()-currentTime
 			except KeyboardInterrupt:
 				raise
 

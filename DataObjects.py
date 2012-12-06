@@ -84,6 +84,7 @@ class PredicateType(object):
 	attribute that describes the RDF predicate to which the class
 	is the RDF subject"""
 	def __init__(self, *args, **kwargs):
+		# print kwargs['predicate']
 		if 'predicate' in kwargs:
 			self.predicate = kwargs['predicate']
 			shorten = False
@@ -96,6 +97,8 @@ class PredicateType(object):
 			from rdflib import RDFS
 			self.predicate = RDFS.Resource
 		super(PredicateType, self).__init__(*args, **kwargs)
+		# print " => "
+		# print kwargs['predicate']
 
 class OrdinalStructure(object):
 	"""OrdinalStructure has a order number, that doesn't have to 

@@ -57,7 +57,7 @@ class Controller:
 		else:
 			srcTypes = (sourceType,)
 		for s in srcTypes:
-			#do action to all types in srcTypes
+			#do action to all types in srcTypes			
 			src = __import__(s, globals(), locals(), [])
 			srcClass = self._getCtrl(src)
 			#print srcClass
@@ -77,7 +77,6 @@ class Controller:
 					
 					method()
 				else:
-					#TODO: add warning, "no such method"
 					print "No such method"
 			else:
 				print "Module %s has no Controller class" % m
@@ -130,12 +129,12 @@ class Controller:
 										   and callable(getattr(self, m)))]
 	        )
 def usage():
-	print "Usage: pyhton Controller.py [-d | -h] [arg]"
-	print "Available flags are: -d (debug), -h--help (help)"
+	print "Usage: pyhton Controller.py [-d | -h | -l] [arg]"
+	print "Available flags are: -d (debug), -h--help (help), -l(log benchmark)"
 
 def main(args):
 	try:                                
-		opts, args = getopt.getopt(args, 'dh', 'help')
+		opts, args = getopt.getopt(args, 'dhl', 'help')
 	except getopt.GetoptError:           
 		usage()                          
 		sys.exit(2)
@@ -146,6 +145,8 @@ def main(args):
 			sys.exit()                  
 		elif opt == '-d':                         
 			config.debug = 1
+		elif opt == '-l':
+			config.benchmark = 1
 	
 	ctrl = Controller()
 	ctrl._validate(args)
