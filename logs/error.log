@@ -1,0 +1,5 @@
+Error:
+
+  File "/home/kungen/Jobb/Exjobb/lawParse/Reference.py", line 180, in parse
+    raise ParseError, 'Parsed %s chars of %s (...%s...)' % (tagList[-1], len(indata), indata[(tagList[-1]-2):tagList[-1]+3])
+Reference.ParseError: u'Parsed 97 chars of 182 (...ci\x7fon...)'
